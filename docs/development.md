@@ -1,6 +1,6 @@
 # 开发文档
 
-> 版本：1.0 | 最后更新：2026-08-01
+> 版本：2.1 | 最后更新：2026-08-01
 
 ## 1. 开发环境
 
@@ -14,24 +14,31 @@
 
 ```bash
 cd /path/to/AutoIrrigationSystem/Untitled
-pio run -e esp32-c3-irrigation
+pio run -e esp32-c3-oled-test
 ```
 
 ### 1.2 编译 / 烧录 / 监控
 
 ```bash
 # 编译
-pio run -e esp32-c3-irrigation
+pio run -e esp32-c3-oled-test
 
 # 烧录
-pio run -e esp32-c3-irrigation -t upload
+pio run -e esp32-c3-oled-test -t upload
 
 # 串口监控
 pio device monitor -b 115200
 
 # 上传文件系统（若使用 data/ 静态资源）
-pio run -e esp32-c3-irrigation -t uploadfs
+pio run -e esp32-c3-oled-test -t uploadfs
 ```
+
+### 1.3 编译环境
+
+| PlatformIO env | MCU | 用途 |
+|----------------|-----|------|
+| `esp32-c3-oled-test` | ESP32-C3 + OLED | 前期验证（I2C GPIO6/7） |
+| `esp32-s3-irrigation` | ESP32-S3 | 量产（I2C GPIO8/9，扩展板不变） |
 
 ---
 
@@ -43,16 +50,23 @@ pio run -e esp32-c3-irrigation -t uploadfs
 ├── include/
 │   ├── config.h                 # 全局默认参数
 │   ├── boards/
-│   │   └── board_c3.h           # C3 引脚定义
+│   │   ├── board_io_map.h       # I2C 扩展板布局（10 路）
+│   │   ├── board_c3_oled.h      # C3 测试 MCU 引脚
+│   │   └── board_s3.h           # S3 量产 MCU 引脚
 │   └── types/
 │       └── zone_config.h        # 分区与系统配置结构体
 ├── src/
 │   ├── main.cpp
 │   ├── sensor/
+│   │   ├── ads1115.h/cpp
 │   │   ├── moisture_sensor.h/cpp
 │   │   └── flow_meter.h/cpp
 │   ├── actuator/
-│   │   └── pump_driver.h/cpp
+│   │   ├── pca9555.h/cpp
+│   │   ├── pump_driver.h/cpp
+│   │   └── valve_driver.h/cpp
+│   ├── bus/
+│   │   └── i2c_bus.h/cpp
 │   ├── control/
 │   │   ├── zone_manager.h/cpp
 │   │   └── irrigation_controller.h/cpp
@@ -100,7 +114,7 @@ flowchart TD
 
 | 宏 | 默认 | 说明 |
 |----|------|------|
-| `MAX_ZONES` | 4 | 最大分区数 |
+| `MAX_ZONES` | 10 | 最大分区数 |
 | `ACTIVE_ZONES` | 2 | 初版激活分区 |
 | `DEFAULT_MOISTURE_LOW` | 30 | 湿度下限 % |
 | `DEFAULT_MOISTURE_HIGH` | 60 | 湿度上限 % |
@@ -123,7 +137,7 @@ flowchart TD
 | `ppl` | uint16 | pulses_per_liter |
 | `dryRun` | uint8 | dry_run_sec |
 | `zCnt` | uint8 | zone_count |
-| `zN{i}` | string | zone name, i=0..3 |
+| `zN{i}` | string | zone name, i=0..9 |
 | `zML{i}` | uint8 | moisture_low |
 | `zMH{i}` | uint8 | moisture_high |
 | `zVol{i}` | uint16 | volume_ml |
@@ -163,6 +177,8 @@ flowchart TD
 | `cal wet <zone>` | 当前 ADC 存为湿土点 |
 | `flow` | 显示脉冲计数与体积 |
 | `pump on\|off` | 调试：直接开关泵（绕过控制器） |
+| `valve <z>\|off` | 调试：打开指定阀或全部关闭 |
+| `set zones <n>` | 激活分区数 1–10（单盆用 1） |
 | `ppl <n>` | 设置 pulses_per_liter |
 | `wifi ssid <name>` | 设置 WiFi SSID |
 | `wifi pass <pass>` | 设置 WiFi 密码 |
@@ -174,13 +190,14 @@ flowchart TD
 约每秒输出：
 
 ```
-[status] pump=OFF state=IDLE safety=OK daily=0ml Z0=45% Z1=52% queue=0
+[status] pump=OFF valve=OFF state=IDLE safety=OK daily=0ml queue=0 Z0=45% ...
 ```
 
 | 字段 | 含义 |
 |------|------|
 | `pump` | ON / OFF |
-| `state` | IDLE / CHECKING / PUMPING / DONE / FAULT |
+| `valve` | OFF 或 Zn（当前打开的阀） |
+| `state` | IDLE / CHECKING / VALVING / PUMPING / DONE / FAULT |
 | `safety` | OK / TIMEOUT / DRY_RUN / DAILY_LIMIT / LOCKED |
 | `daily` | 今日累计 mL |
 | `Z{n}` | 分区湿度 % |
@@ -198,6 +215,8 @@ Base URL: `http://<device-ip>/`
 {
   "board": "ESP32-C3-Irrigation",
   "pump": false,
+  "valve_on": false,
+  "active_valve": -1,
   "state": "IDLE",
   "safety": "OK",
   "daily_ml": 120,
@@ -234,7 +253,45 @@ Body 为部分或全部配置字段，保存到 NVS。
 { "zone": 0, "volume_ml": 150 }
 ```
 
-### 5.5 POST /api/emergency-stop
+### 5.5 POST /api/stop
+
+无 body，停泵、关阀、清除故障（同 CLI `stop`）。
+
+### 5.6 POST /api/test/pump
+
+```json
+{ "on": true }
+```
+
+调试：直接开关水泵（绕过控制器）。
+
+### 5.7 POST /api/test/valve
+
+```json
+{ "zone": 0 }
+```
+
+打开指定阀；`{ "zone": -1 }` 或省略关闭所有阀。
+
+### 5.8 POST /api/cal
+
+```json
+{ "zone": 0, "point": "dry" }
+```
+
+`point`: `dry` | `wet`，将当前 ADC 写入校准并保存 NVS。
+
+### 5.9 GET /api/flow
+
+```json
+{ "pulses": 120, "volume_ml": 45, "pulses_per_liter": 450 }
+```
+
+### 5.10 POST /api/settings（完整）
+
+Body 可含 `zones[]` 每分区：`name`, `moisture_low/high`, `volume_ml`, `auto_enabled`, `schedule_enabled`, `schedule_hour/minute`, `cal_dry/wet`。Web UI 通过此接口保存全部参数。
+
+### 5.11 POST /api/emergency-stop
 
 无 body，立即停泵。
 
@@ -271,7 +328,7 @@ GET 返回连接状态；POST 设置 `ssid`, `password`, `enabled`。
 
 ### 7.1 单元 / 逻辑（无硬件）
 
-- [ ] 编译通过 `pio run -e esp32-c3-irrigation`
+- [ ] 编译通过 `pio run -e esp32-c3-oled-test` 与 `pio run -e esp32-s3-irrigation`
 - [ ] 状态机：模拟体积达标后转 Done
 - [ ] 日限额：累计超限后拒绝 auto
 

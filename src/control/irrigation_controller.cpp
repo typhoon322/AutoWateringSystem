@@ -4,12 +4,15 @@
 #include <string.h>
 #include <time.h>
 
-IrrigationController::IrrigationController(ZoneManager *zones, PumpDriver *pump, FlowMeter *flow,
-                                           SafetyMonitor *safety, SystemConfig *config,
-                                           ZoneConfig *zone_configs, ZoneStatus *zone_status,
-                                           SystemStatus *status)
+#include "config.h"
+
+IrrigationController::IrrigationController(ZoneManager *zones, PumpDriver *pump, ValveDriver *valves,
+                                           FlowMeter *flow, SafetyMonitor *safety,
+                                           SystemConfig *config, ZoneConfig *zone_configs,
+                                           ZoneStatus *zone_status, SystemStatus *status)
     : zones_(zones),
       pump_(pump),
+      valves_(valves),
       flow_(flow),
       safety_(safety),
       config_(config),
@@ -23,15 +26,27 @@ void IrrigationController::begin() {
   status_->state = IrrigationState::Idle;
   status_->safety = SafetyState::Ok;
   status_->pump_on = false;
+  status_->valve_on = false;
   status_->active_zone = -1;
+  status_->active_valve = -1;
   status_->daily_ml = 0;
   status_->queue_len = 0;
   status_->session_ml = 0;
   status_->trigger = IrrigateTrigger::None;
   last_yday_ = -1;
+  if (valves_ != nullptr) {
+    valves_->closeAll();
+  }
+  pump_->set(false);
 }
 
 void IrrigationController::transitionTo(IrrigationState state) { status_->state = state; }
+
+void IrrigationController::syncActuatorStatus() {
+  status_->pump_on = pump_->isOn();
+  status_->valve_on = valves_ != nullptr && valves_->activeZone() >= 0;
+  status_->active_valve = valves_ != nullptr ? valves_->activeZone() : -1;
+}
 
 const char *IrrigationController::stateText() const {
   switch (status_->state) {
@@ -39,6 +54,8 @@ const char *IrrigationController::stateText() const {
       return "IDLE";
     case IrrigationState::Checking:
       return "CHECKING";
+    case IrrigationState::Valving:
+      return "VALVING";
     case IrrigationState::Pumping:
       return "PUMPING";
     case IrrigationState::Done:
@@ -54,14 +71,14 @@ bool IrrigationController::enqueue(uint8_t zone, uint16_t volume_ml, IrrigateTri
   if (zone >= config_->zone_count) {
     return false;
   }
-  const uint8_t next = (queue_tail_ + 1) % 4;
+  const uint8_t next = (queue_tail_ + 1) % MAX_ZONES;
   if (next == queue_head_) {
     return false;
   }
   queue_[queue_tail_] = {zone, volume_ml, trigger, true};
   queue_tail_ = next;
   status_->queue_len = (queue_tail_ >= queue_head_) ? (queue_tail_ - queue_head_)
-                                                    : (4 - queue_head_ + queue_tail_);
+                                                    : (MAX_ZONES - queue_head_ + queue_tail_);
   return true;
 }
 
@@ -83,17 +100,29 @@ void IrrigationController::resetScheduleFlags() {
   }
 }
 
-void IrrigationController::startPumping(uint8_t zone, uint16_t volume_ml, IrrigateTrigger trigger) {
+void IrrigationController::startSession(uint8_t zone, uint16_t volume_ml, IrrigateTrigger trigger) {
   active_zone_ = zone;
   target_volume_ml_ = volume_ml > 0 ? volume_ml : zone_configs_[zone].volume_ml;
-  pump_start_ms_ = millis();
-  flow_->resetSession();
-  pump_->set(true);
-  status_->pump_on = true;
   status_->active_zone = static_cast<int8_t>(zone);
   status_->trigger = trigger;
   status_->session_ml = 0;
+
+  if (valves_ != nullptr) {
+    valves_->open(zone);
+    valve_start_ms_ = millis();
+    transitionTo(IrrigationState::Valving);
+  } else {
+    beginPumping();
+  }
+  syncActuatorStatus();
+}
+
+void IrrigationController::beginPumping() {
+  pump_start_ms_ = millis();
+  flow_->resetSession();
+  pump_->set(true);
   transitionTo(IrrigationState::Pumping);
+  syncActuatorStatus();
 }
 
 void IrrigationController::finishSession(bool fault) {
@@ -102,11 +131,14 @@ void IrrigationController::finishSession(bool fault) {
     safety_->addDailyMl(vol);
   }
   pump_->set(false);
-  status_->pump_on = false;
+  if (valves_ != nullptr) {
+    valves_->closeAll();
+  }
   status_->session_ml = vol;
   status_->daily_ml = safety_->dailyMl();
   active_zone_ = 255;
   status_->active_zone = -1;
+  syncActuatorStatus();
 
   if (fault) {
     transitionTo(IrrigationState::Fault);
@@ -116,22 +148,33 @@ void IrrigationController::finishSession(bool fault) {
   }
 }
 
+void IrrigationController::abortSession() {
+  pump_->set(false);
+  if (valves_ != nullptr) {
+    valves_->closeAll();
+  }
+  active_zone_ = 255;
+  status_->active_zone = -1;
+  status_->session_ml = 0;
+  syncActuatorStatus();
+}
+
 void IrrigationController::processQueue() {
   if (queue_head_ == queue_tail_) {
     return;
   }
-  if (status_->state == IrrigationState::Pumping) {
+  if (status_->state == IrrigationState::Pumping || status_->state == IrrigationState::Valving) {
     return;
   }
   if (status_->state == IrrigationState::Fault && safety_->isLocked()) {
     return;
   }
   IrrigateRequest req = queue_[queue_head_];
-  queue_head_ = (queue_head_ + 1) % 4;
+  queue_head_ = (queue_head_ + 1) % MAX_ZONES;
   status_->queue_len = (queue_tail_ >= queue_head_) ? (queue_tail_ - queue_head_)
-                                                    : (4 - queue_head_ + queue_tail_);
+                                                    : (MAX_ZONES - queue_head_ + queue_tail_);
   if (req.pending) {
-    startPumping(req.zone, req.volume_ml, req.trigger);
+    startSession(req.zone, req.volume_ml, req.trigger);
   }
 }
 
@@ -168,11 +211,16 @@ void IrrigationController::checkAutoTriggers() {
 }
 
 void IrrigationController::stop() {
-  if (pump_->isOn()) {
+  if (status_->state == IrrigationState::Pumping) {
     finishSession(false);
+  } else if (status_->state == IrrigationState::Valving) {
+    abortSession();
+    transitionTo(IrrigationState::Idle);
   }
   safety_->unlock();
-  transitionTo(IrrigationState::Idle);
+  if (status_->state != IrrigationState::Done && status_->state != IrrigationState::Fault) {
+    transitionTo(IrrigationState::Idle);
+  }
   queue_head_ = queue_tail_;
   status_->queue_len = 0;
 }
@@ -184,10 +232,7 @@ void IrrigationController::emergencyStop() {
       safety_->addDailyMl(vol);
     }
   }
-  pump_->set(false);
-  status_->pump_on = false;
-  active_zone_ = 255;
-  status_->active_zone = -1;
+  abortSession();
   safety_->lock(SafetyState::Locked);
   transitionTo(IrrigationState::Fault);
   queue_head_ = queue_tail_;
@@ -198,6 +243,7 @@ void IrrigationController::tick() {
   safety_->resetDailyIfNewDay();
   status_->daily_ml = safety_->dailyMl();
   status_->safety = safety_->state();
+  syncActuatorStatus();
 
   if (status_->state == IrrigationState::Done) {
     if (millis() >= done_until_ms_) {
@@ -210,6 +256,13 @@ void IrrigationController::tick() {
   if (status_->state == IrrigationState::Fault) {
     if (!safety_->isLocked()) {
       transitionTo(IrrigationState::Idle);
+    }
+    return;
+  }
+
+  if (status_->state == IrrigationState::Valving) {
+    if (millis() - valve_start_ms_ >= DEFAULT_VALVE_SETTLE_MS) {
+      beginPumping();
     }
     return;
   }
@@ -245,7 +298,7 @@ void IrrigationController::tick() {
   }
 
   processQueue();
-  if (status_->state == IrrigationState::Pumping) {
+  if (status_->state == IrrigationState::Pumping || status_->state == IrrigationState::Valving) {
     return;
   }
 

@@ -4,12 +4,12 @@
 
 class MoistureSensor {
  public:
-  explicit MoistureSensor(uint8_t pin);
+  explicit MoistureSensor(uint8_t zone_index);
 
   void begin();
   bool read(uint16_t &adc_out, uint8_t &pct_out) const;
   static uint8_t adcToPercent(uint16_t adc, uint16_t cal_dry, uint16_t cal_wet);
 
  private:
-  uint8_t pin_;
+  uint8_t zone_index_;
 };

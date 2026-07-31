@@ -1,19 +1,46 @@
-# 系统设计文档 — ESP32-C3 多路自动浇花系统
+# 系统设计文档 — ESP32 多路自动浇花系统
 
-> 版本：1.0 | 最后更新：2026-08-01
+> 版本：2.1 | 最后更新：2026-08-01
 
 ## 1. 项目背景与目标
 
 家用多盆植物需要定时、定量补水。纯湿度阈值控制难以保证每次浇水量一致；加入流量计后可实现 **mL 级定量浇水**，避免过浇或欠浇。
 
-本系统基于 **ESP32-C3-DevKitM-1**，支持 **2 个灌溉分区**（可扩展至 4 路），通过 **WiFi + 本地 Web 界面** 监控与配置，离线亦可独立运行（串口 CLI + 板载 RGB LED 状态指示）。
+本系统采用 **I2C 扩展子板**（3× ADS1115 + PCA9555），支持 **1–10 个灌溉分区**；前期用 **ESP32-C3 + OLED** 验证，量产 **换 ESP32-S3** 即可（扩展板接线不变）。通过 **WiFi + 本地 Web 界面** 监控与配置，离线亦可独立运行（串口 CLI + RGB LED 状态指示）。
+
+### 1.0.1 硬件平台策略
+
+| 项目 | 约定 |
+|------|------|
+| **架构** | **I2C 扩展子板**（3× ADS1115 + 1× PCA9555），最多 **10 盆** |
+| **前期验证** | ESP32-C3 + OLED（`BOARD_C3_OLED_TEST`，I2C GPIO6/7） |
+| **量产** | ESP32-S3（`BOARD_S3_IRRIGATION`，I2C GPIO8/9） |
+| **换板策略** | **扩展子板接线不变，只换 MCU 模块** |
+| **代码入口** | `include/platform.h` → `board_c3_oled.h` / `board_s3.h` + 共用 `board_io_map.h` |
+
+### 1.0.2 多盆 vs 多 MCU
+
+**一个 MCU 可管理多盆植物**，无需每盆配一块开发板：
+
+- **每盆 1 个湿度探头** → 接 ADS1115（I2C 扩展板）
+- **共用 1 个水泵 + 1 个流量计** → 按分区排队顺序灌溉
+- **v2.1**：PCA9555 驱动最多 **10 路电磁阀**，固定分水管，全自动多盆
+
+成本对比（2 盆）：
+
+| 方案 | MCU | 湿度探头 | 估算 |
+|------|-----|----------|------|
+| 本设计 | 1 × C3 | 2 | ~¥25 + 2×¥5 |
+| 每盆一 MCU | 2 × C3 | 2 | ~¥50 + 2×¥5 |
+
+固件中 `MAX_ZONES=10`、`ACTIVE_ZONES=2`（见 `include/config.h`），分区数据结构已支持 10 路。
 
 ### 1.1 设计目标
 
 | 目标 | 指标 |
 |------|------|
 | 定量精度 | ±5%（标定后，YF-S201 典型值 450 pulse/L） |
-| 分区数 | 初版 2 路，架构预留 4 路 |
+| 分区数 | 初版 2 路，架构支持 10 路（I2C 扩展） |
 | 联网 | 局域网 Web UI，WiFi 默认关闭 |
 | 安全 | 超时停泵、干转检测、日累计上限 |
 | 可维护 | 模块化固件 + 文档与代码映射（见 [DOC_MAP.md](DOC_MAP.md)） |
@@ -41,7 +68,7 @@
 
 - **响应**：湿度采样周期 5 s，Web 状态刷新 2 s
 - **可靠性**：泵最大单次运行 60 s（可配置）；干转 3 s 无脉冲则锁定
-- **扩展**：v2 可增电磁阀实现独立水路；v3 可增 MQTT / OLED
+- **扩展**：v3 可增 MQTT / 云端监控
 
 ---
 
@@ -51,79 +78,91 @@
 
 ```mermaid
 flowchart TB
-    subgraph mcu [ESP32-C3-DevKitM-1]
-        ADC[ADC1]
+    subgraph mcu [MCU_C3_or_S3]
+        I2C[I2C_Bus]
         GPIO[GPIO]
         WiFiMod[WiFi]
     end
 
+    subgraph expander [I2C_Expander_Board]
+        ADS0[ADS1115_0x48]
+        ADS1[ADS1115_0x49]
+        ADS2[ADS1115_0x4A]
+        PCA[PCA9555_0x20]
+    end
+
     subgraph sensors [Sensors]
-        MS0[Moisture_Z0]
-        MS1[Moisture_Z1]
+        MS[Moisture_x10]
         FM[FlowMeter_YF-S201]
     end
 
     subgraph actuators [Actuators]
-        RELAY[Relay_5V]
+        PUMP_RELAY[Pump_Relay]
+        VALVE_RELAY[Valve_Relays_x10]
         PUMP[Pump_12V]
+        VALVES[Valves_12V]
     end
 
-    PS12[12V_2A_Adapter]
-    USB[USB_5V_C3]
+    PS12[12V_Adapter]
 
-    MS0 -->|Analog| ADC
-    MS1 -->|Analog| ADC
+    I2C --> ADS0 & ADS1 & ADS2 & PCA
+    MS --> ADS0 & ADS1 & ADS2
     FM -->|Pulse| GPIO
-    GPIO --> RELAY --> PUMP
-    PS12 --> PUMP
-    USB --> mcu
+    GPIO --> PUMP_RELAY --> PUMP
+    PCA --> VALVE_RELAY --> VALVES
+    PS12 --> PUMP & VALVES & FM
     PS12 -.->|共地| mcu
 ```
 
-### 3.2 多路灌溉策略
+### 3.2 多路灌溉策略（v2.1 — 当前实现）
 
-**初版：单泵 + 顺序灌溉**
+**单泵 + 每路电磁阀 + 共用流量计 + I2C 扩展**
 
-- 1 个 12 V 水泵 + 1 个继电器 + 1 个流量计
-- 2 个湿度探头分别对应 Zone 0 / Zone 1
-- 浇水时将出水口对准目标花盆，或依靠后续电磁阀扩展
+- 1 × 12 V 水泵 + 1 × 流量计（泵后、阀前）
+- 每盆 1 × 湿度探头（ADS1115）+ 1 × 12 V 常闭电磁阀（PCA9555）
+- `zone_count` 可设 **1–10**（单盆只用 Zone 0 即可）
+- 浇水序列：**开阀 → 等待 500 ms → 开泵 → 定量停泵 → 关阀**
+- 同一时刻仅一路阀开启，多盆请求排队执行
 
-**扩展（v2）：单泵 + 电磁阀**
+```
+水源 → [泵] → [流量计] → 分水器 ─┬─ [阀0] → 盆0
+                                ├─ [阀1] → 盆1
+                                └─ … 最多 10 路
+```
 
-- 每个分区增加一路 5 V 电磁阀
-- 浇水前打开对应阀，流量计仍共用
+### 3.3 引脚与 I2C 分配
 
-### 3.3 引脚分配
+**MCU 直连**（因板型而异，见 `board_c3_oled.h` / `board_s3.h`）：
 
-ESP32-C3 模组 **GPIO11–17 接 Flash，不可用**。
+| 功能 | C3 OLED 测试 | S3 量产 |
+|------|--------------|---------|
+| I2C SDA / SCL | GPIO6 / GPIO7 | GPIO8 / GPIO9 |
+| 水泵继电器 | GPIO3 | GPIO4 |
+| 流量计 | GPIO5 | GPIO5 |
+| RGB LED | GPIO8 | GPIO48 |
 
-| 功能 | GPIO | 接口 |
+**I2C 扩展板**（两板相同，见 `board_io_map.h`）：
+
+| 器件 | 地址 | 映射 |
 |------|------|------|
-| 湿度 Zone 0 | GPIO0 | ADC1_CH0 |
-| 湿度 Zone 1 | GPIO1 | ADC1_CH1 |
-| 水泵继电器 | GPIO3 | 数字输出，高电平吸合 |
-| 流量计脉冲 | GPIO5 | 外部中断，INPUT_PULLUP |
-| RGB 状态 LED | GPIO8 | 板载 WS2812（DevKitM-1） |
-| （预留）湿度 Zone 2 | GPIO2 | ADC1 |
-| （预留）湿度 Zone 3 | GPIO4 | ADC1 |
-| （预留）OLED SDA/SCL | GPIO6 / GPIO7 | I2C |
+| ADS1115 ×3 | 0x48 / 0x49 / 0x4A | 10 路湿度 AIN |
+| PCA9555 | 0x20 | 阀继电器 P0–P9 |
 
 详细接线见 [wiring.md](wiring.md)，采购清单见 [bom.md](bom.md)。
 
 ### 3.4 电源设计
 
 ```
-12V 适配器 ──→ [水泵 + 流量计供电]
+12V 适配器 ──→ [水泵 + 流量计 + 电磁阀]
      │
      └── GND ──共地── ESP32 GND
 
-USB 5V ──→ ESP32-C3（开发阶段）
-或 12V ──→ [降压模块 5V/1A] ──→ ESP32（定型部署）
+USB 5V ──→ ESP32（开发阶段）
+或 12V ──→ [降压模块 5V/1A] ──→ ESP32 + 继电器 VCC（定型部署）
 ```
 
-- C3 与泵 **必须共地**
-- 继电器模块用 C3 的 **3.3 V / 5 V**（视模块规格）；水泵由 12 V 供电
-- 流量计 YF-S201：5–18 V 供电，可与泵并联 12 V
+- MCU 与泵 **必须共地**
+- I2C 扩展板与 MCU 共 3.3 V / GND；长排线建议 SDA/SCL 加 4.7 kΩ 上拉
 
 ---
 
@@ -137,6 +176,7 @@ flowchart LR
     MS[MoistureSensor]
     FM[FlowMeter]
     PD[PumpDriver]
+    VD[ValveDriver]
     ZM[ZoneManager]
     IC[IrrigationController]
     SM[SafetyMonitor]
@@ -148,6 +188,7 @@ flowchart LR
     IC --> ZM
     IC --> SM
     IC --> PD
+    IC --> VD
     IC --> FM
     ZM --> MS
     WS --> SS
@@ -157,9 +198,13 @@ flowchart LR
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| MoistureSensor | `src/sensor/moisture_sensor.cpp` | ADC 采样、校准、百分比 |
+| I2cBus | `src/bus/i2c_bus.cpp` | Wire 初始化、设备探测 |
+| Ads1115 | `src/sensor/ads1115.cpp` | I2C ADC，16 位转 12 位标度 |
+| MoistureSensor | `src/sensor/moisture_sensor.cpp` | 分区湿度、校准、百分比 |
 | FlowMeter | `src/sensor/flow_meter.cpp` | 脉冲中断、体积换算 |
-| PumpDriver | `src/actuator/pump_driver.cpp` | 继电器开关 |
+| Pca9555 | `src/actuator/pca9555.cpp` | I2C IO 扩展，阀继电器位 |
+| PumpDriver | `src/actuator/pump_driver.cpp` | 水泵继电器 |
+| ValveDriver | `src/actuator/valve_driver.cpp` | 分区电磁阀（互锁，仅一路开） |
 | ZoneManager | `src/control/zone_manager.cpp` | 分区配置与湿度状态 |
 | IrrigationController | `src/control/irrigation_controller.cpp` | 浇水状态机、队列 |
 | SafetyMonitor | `src/safety/safety_monitor.cpp` | 超时、干转、日限额 |
@@ -173,19 +218,22 @@ flowchart LR
 stateDiagram-v2
     [*] --> Idle
     Idle --> Checking: tick / 定时到
-    Checking --> Pumping: 需要浇水
+    Checking --> Valving: 需要浇水
     Checking --> Idle: 无需浇水
+    Valving --> Pumping: 阀稳定 500ms
     Pumping --> Done: 体积达标或湿度达标
     Pumping --> Fault: 超时或干转
     Done --> Idle: 冷却完成
     Fault --> Idle: 手动复位 stop
 ```
 
+**Valving：** 关闭所有阀 → 打开目标 Zone 阀 → 等待 `DEFAULT_VALVE_SETTLE_MS`（500 ms）
+
 **Pumping 子循环（每 100 ms）：**
 
 1. 读流量计累计体积
-2. 若 `volume >= target_ml` → 停泵 → Done
-3. 若 `moisture >= upper_threshold` 且模式含阈值 → 停泵 → Done
+2. 若 `volume >= target_ml` → 停泵、关阀 → Done
+3. 若 `moisture >= upper_threshold` 且模式含阈值 → 停泵、关阀 → Done
 4. 若 `elapsed > max_run_sec` → 停泵 → Fault（TIMEOUT）
 5. 若 `pump_on && elapsed > 3s && pulses == 0` → 停泵 → Fault（DRY_RUN）
 
@@ -267,12 +315,10 @@ stateDiagram-v2
 
 | 版本 | 内容 |
 |------|------|
-| v1.0 | 2 分区、单泵顺序、Web + CLI（当前） |
-| v1.1 | Wokwi 仿真环境 |
-| v2.0 | 电磁阀多水路、4 分区 |
+| v2.0 | 单泵 + 电磁阀多水路、1–4 分区（**当前**） |
 | v2.1 | SH1106 OLED 本地显示 |
-| v3.0 | MQTT / Home Assistant 集成 |
-| v3.1 | 湿度历史曲线、LittleFS 日志导出 |
+| v3.0 | MQTT / Home Assistant |
+| v3.1 | 湿度历史曲线、LittleFS 日志 |
 
 ---
 

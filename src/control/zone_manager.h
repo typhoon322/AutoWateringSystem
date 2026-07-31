@@ -8,6 +8,7 @@ class ZoneManager {
   ZoneManager(MoistureSensor *sensors, ZoneConfig *configs, ZoneStatus *status, uint8_t count);
 
   void begin();
+  void setCount(uint8_t count);
   void sampleAll();
   bool needsWater(uint8_t zone_id) const;
   bool isSensorValid(uint8_t zone_id) const;
@@ -18,4 +19,5 @@ class ZoneManager {
   ZoneConfig *configs_;
   ZoneStatus *status_;
   uint8_t count_;
+  uint8_t max_count_;
 };

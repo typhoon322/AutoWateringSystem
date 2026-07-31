@@ -4,7 +4,17 @@
 
 ZoneManager::ZoneManager(MoistureSensor *sensors, ZoneConfig *configs, ZoneStatus *status,
                          uint8_t count)
-    : sensors_(sensors), configs_(configs), status_(status), count_(count) {}
+    : sensors_(sensors), configs_(configs), status_(status), count_(count), max_count_(count) {}
+
+void ZoneManager::setCount(uint8_t count) {
+  if (count < 1) {
+    count = 1;
+  }
+  if (count > max_count_) {
+    count = max_count_;
+  }
+  count_ = count;
+}
 
 void ZoneManager::begin() {
   for (uint8_t i = 0; i < count_; ++i) {

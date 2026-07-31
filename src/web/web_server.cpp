@@ -4,11 +4,19 @@
 #include <WebServer.h>
 #include <WiFi.h>
 
+#include "actuator/pump_driver.h"
+#include "actuator/valve_driver.h"
 #include "config.h"
 #include "control/irrigation_controller.h"
+#include "control/zone_manager.h"
+#include "sensor/flow_meter.h"
 #include "storage/settings_store.h"
 
 extern SettingsStore g_settings;
+extern PumpDriver g_pump;
+extern ValveDriver g_valves;
+extern FlowMeter g_flow;
+extern ZoneManager g_zone_manager;
 
 namespace {
 WebServer server(80);
@@ -20,79 +28,224 @@ const char kDashboardHtml[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AutoIrrigation</title>
 <style>
-:root{--bg:#0f1419;--card:#1a2332;--accent:#00cc88;--warn:#ff5555;--text:#e6edf3;--muted:#8b949e}
+:root{--bg:#0f1419;--card:#1a2332;--accent:#00cc88;--warn:#ff5555;--text:#e6edf3;--muted:#8b949e;--blue:#388bfd}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);padding:16px}
-h1{color:var(--accent);margin-bottom:12px;font-size:1.2rem}
-.grid{display:grid;gap:12px;max-width:520px;margin:0 auto}
-.card{background:var(--card);border-radius:12px;padding:16px;border:1px solid #30363d}
-.row{display:flex;justify-content:space-between;margin:6px 0;font-size:.9rem}
-.label{color:var(--muted)}
-.zone{font-size:1.5rem;color:var(--accent);font-weight:700}
-input,select{width:100%;padding:10px;margin:6px 0;border:1px solid #30363d;border-radius:8px;background:#0d1117;color:var(--text)}
-button{padding:12px;border:none;border-radius:8px;font-weight:600;cursor:pointer;margin:4px 0;width:100%}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);padding:12px;line-height:1.4}
+.wrap{max-width:560px;margin:0 auto}
+h1{color:var(--accent);font-size:1.15rem;margin-bottom:10px}
+h2{font-size:.95rem;color:var(--accent);margin:0 0 8px}
+.card{background:var(--card);border-radius:10px;padding:14px;margin-bottom:10px;border:1px solid #30363d}
+.row{display:flex;justify-content:space-between;gap:8px;margin:4px 0;font-size:.85rem}
+.label{color:var(--muted);flex-shrink:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+label{font-size:.75rem;color:var(--muted);display:block;margin-top:6px}
+input,select{width:100%;padding:8px;margin:2px 0 4px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:var(--text);font-size:.85rem}
+button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:.85rem}
+.btn-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.btn-row3{grid-template-columns:1fr 1fr 1fr}
 .btn-go{background:var(--accent);color:#0f1419}
-.btn-stop{background:var(--warn);color:#fff}
-.btn-save{background:#388bfd;color:#fff}
-.msg{font-size:.8rem;color:var(--muted);text-align:center;margin-top:8px}
+.btn-stop,.btn-warn{background:var(--warn);color:#fff}
+.btn-save{background:var(--blue);color:#fff}
+.btn-ghost{background:#21262d;color:var(--text);border:1px solid #30363d}
+.zone-card{border:1px solid #30363d;border-radius:8px;padding:10px;margin-bottom:8px;background:#0d1117}
+.zone-title{font-weight:700;color:var(--accent);margin-bottom:6px}
+.chk{display:flex;align-items:center;gap:6px;margin:4px 0;font-size:.85rem}
+.chk input{width:auto;margin:0}
+.msg{text-align:center;font-size:.8rem;color:var(--muted);padding:8px 0;min-height:1.2em}
+.live{font-size:.8rem;color:var(--muted);text-align:right;margin-bottom:6px}
 </style>
 </head>
 <body>
-<div class="grid">
-<h1>AutoIrrigation</h1>
-<div class="card" id="summary">加载中...</div>
-<div class="card" id="zones"></div>
+<div class="wrap">
+<h1>AutoIrrigation Web</h1>
+<div class="live" id="liveHint">刷新中…</div>
+
+<div class="card" id="statusCard"><h2>实时状态</h2><div id="statusBody">加载中…</div></div>
+
 <div class="card">
-  <label>手动浇水</label>
-  <select id="manualZone"></select>
-  <input type="number" id="manualMl" value="100" min="10" max="2000">
-  <button class="btn-go" onclick="irrigate()">浇水</button>
-  <button class="btn-stop" onclick="estop()">急停</button>
+<h2>系统参数</h2>
+<div class="grid2">
+<div><label>激活盆数 (1–10)</label><input type="number" id="zoneCount" min="1" max="10"></div>
+<div><label>流量计 ppl</label><input type="number" id="ppl"></div>
+<div><label>最长泵运行 (s)</label><input type="number" id="maxRun"></div>
+<div><label>日限额 (ml)</label><input type="number" id="dailyLim"></div>
+<div><label>干转判定 (s)</label><input type="number" id="dryRun"></div>
 </div>
+</div>
+
+<div class="card"><h2>分区配置</h2><div id="zoneForms"></div></div>
+
 <div class="card">
-  <label>WiFi SSID</label>
-  <input id="wifiSsid">
-  <label>WiFi 密码</label>
-  <input id="wifiPass" type="password">
-  <button class="btn-save" onclick="saveWifi()">保存 WiFi</button>
+<h2>测试与标定</h2>
+<div class="grid2">
+<div><label>测试分区</label><select id="testZone"></select></div>
+<div><label>手动体积 (ml)</label><input type="number" id="testMl" value="100" min="10" max="2000"></div>
 </div>
+<div class="btn-row btn-row3">
+<button class="btn-go" onclick="doIrrigate()">队列浇水</button>
+<button class="btn-warn" onclick="doEstop()">急停</button>
+<button class="btn-ghost" onclick="doStop()">停止/复位</button>
+</div>
+<div class="btn-row btn-row3">
+<button class="btn-ghost" onclick="doPump(1)">泵 ON</button>
+<button class="btn-ghost" onclick="doPump(0)">泵 OFF</button>
+<button class="btn-ghost" onclick="doValve(-1)">阀全关</button>
+</div>
+<div class="btn-row">
+<button class="btn-ghost" onclick="doValveSel()">开阀</button>
+<button class="btn-ghost" onclick="doCal('dry')">标定 干</button>
+<button class="btn-ghost" onclick="doCal('wet')">标定 湿</button>
+<button class="btn-ghost" onclick="doFlow()">读流量</button>
+</div>
+<div class="row" id="flowInfo"><span class="label">流量计</span><span>—</span></div>
+</div>
+
+<div class="card">
+<h2>WiFi</h2>
+<label>SSID</label><input id="wifiSsid">
+<label>密码</label><input id="wifiPass" type="password">
+<div class="chk"><input type="checkbox" id="wifiEn"><span>启用 WiFi</span></div>
+</div>
+
+<button class="btn-save" style="width:100%" onclick="saveAll()">保存全部配置</button>
 <p class="msg" id="msg"></p>
 </div>
 <script>
-async function api(path,opt){const r=await fetch(path,opt);return r.json()}
-function zoneOpts(zones,sel){sel.innerHTML=zones.map(z=>'<option value="'+z.id+'">'+z.name+'</option>').join('')}
-async function refresh(){
+const MAXZ=10;
+let settings={};
+async function api(p,o){const r=await fetch(p,o);return r.json()}
+function msg(t){document.getElementById('msg').textContent=t}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+async function refreshStatus(){
   const d=await api('/api/status');
-  document.getElementById('summary').innerHTML=
+  document.getElementById('statusBody').innerHTML=
+    '<div class="row"><span class="label">板型</span><span>'+esc(d.board)+' v'+esc(d.firmware||'?')+'</span></div>'+
     '<div class="row"><span class="label">状态</span><span>'+d.state+' / '+d.safety+'</span></div>'+
-    '<div class="row"><span class="label">水泵</span><span>'+(d.pump?'ON':'OFF')+'</span></div>'+
+    '<div class="row"><span class="label">泵</span><span>'+(d.pump?'ON':'OFF')+'</span></div>'+
+    '<div class="row"><span class="label">阀</span><span>'+(d.valve_on?'Z'+d.active_valve:'OFF')+'</span></div>'+
+    '<div class="row"><span class="label">队列</span><span>'+d.queue+'</span></div>'+
     '<div class="row"><span class="label">今日流量</span><span>'+d.daily_ml+' ml</span></div>'+
-    '<div class="row"><span class="label">WiFi</span><span>'+(d.wifi&&d.wifi.connected?d.wifi.ip:'未连接')+'</span></div>';
-  document.getElementById('zones').innerHTML=d.zones.map(z=>
-    '<div style="margin-bottom:12px"><div class="zone">'+z.name+': '+z.moisture_pct+'%</div>'+
-    '<div class="row"><span class="label">自动</span><span>'+(z.auto_enabled?'开':'关')+'</span></div>'+
-    '<div class="row"><span class="label">阈值</span><span>'+z.moisture_low+'% ~ '+z.moisture_high+'%</span></div>'+
-    '<div class="row"><span class="label">单次体积</span><span>'+z.volume_ml+' ml</span></div></div>').join('');
-  zoneOpts(d.zones,document.getElementById('manualZone'));
+    '<div class="row"><span class="label">WiFi</span><span>'+(d.wifi&&d.wifi.connected?d.wifi.ip:'未连接')+'</span></div>'+
+    (d.zones||[]).map(z=>'<div class="row"><span class="label">'+esc(z.name)+'</span><span>'+z.moisture_pct+'% (ADC '+z.moisture_adc+')</span></div>').join('');
+  document.getElementById('liveHint').textContent='实时刷新 · '+new Date().toLocaleTimeString();
 }
-async function irrigate(){
-  const zone=+document.getElementById('manualZone').value;
-  const volume_ml=+document.getElementById('manualMl').value;
+function buildZoneForms(zc,zones){
+  const n=Math.min(zc,MAXZ);
+  let h='';
+  for(let i=0;i<n;i++){
+    const z=zones[i]||{};
+    h+='<div class="zone-card"><div class="zone-title">分区 '+i+' · 实时 '+(z.moisture_pct!=null?z.moisture_pct+'%':'—')+'</div>'+
+      '<label>名称</label><input id="zN'+i+'" value="'+esc(z.name||('Zone'+i))+'">'+
+      '<div class="grid2"><div><label>湿度下限 %</label><input type="number" id="zLo'+i+'" value="'+(z.moisture_low||30)+'"></div>'+
+      '<div><label>湿度上限 %</label><input type="number" id="zHi'+i+'" value="'+(z.moisture_high||60)+'"></div></div>'+
+      '<div class="grid2"><div><label>单次 ml</label><input type="number" id="zVol'+i+'" value="'+(z.volume_ml||100)+'"></div>'+
+      '<div><label>定时 HH:MM</label><input id="zSch'+i+'" value="'+String(z.schedule_hour||8).padStart(2,'0')+':'+String(z.schedule_minute||0).padStart(2,'0')+'"></div></div>'+
+      '<div class="grid2"><div><label>校准 干 ADC</label><input type="number" id="zDry'+i+'" value="'+(z.cal_dry||3200)+'"></div>'+
+      '<div><label>校准 湿 ADC</label><input type="number" id="zWet'+i+'" value="'+(z.cal_wet||1400)+'"></div></div>'+
+      '<div class="chk"><input type="checkbox" id="zAuto'+i+'" '+(z.auto_enabled?'checked':'')+'><span>阈值自动</span></div>'+
+      '<div class="chk"><input type="checkbox" id="zSchE'+i+'" '+(z.schedule_enabled?'checked':'')+'><span>定时浇水</span></div></div>';
+  }
+  document.getElementById('zoneForms').innerHTML=h;
+  const sel=document.getElementById('testZone');
+  sel.innerHTML='';
+  for(let i=0;i<n;i++)sel.innerHTML+='<option value="'+i+'">'+(zones[i]&&zones[i].name||('Zone'+i))+'</option>';
+}
+async function loadAll(){
+  const [st,s,w]=await Promise.all([api('/api/status'),api('/api/settings'),api('/api/wifi')]);
+  settings=s;
+  document.getElementById('zoneCount').value=s.zone_count||1;
+  document.getElementById('ppl').value=s.pulses_per_liter||450;
+  document.getElementById('maxRun').value=s.max_run_sec||60;
+  document.getElementById('dailyLim').value=s.daily_limit_ml||2000;
+  document.getElementById('dryRun').value=s.dry_run_sec||3;
+  document.getElementById('wifiSsid').value=w.ssid||'';
+  document.getElementById('wifiPass').value='';
+  document.getElementById('wifiEn').checked=!!w.enabled;
+  const zones=(s.zones||[]).map((z,i)=>Object.assign({},z,st.zones&&st.zones[i]));
+  buildZoneForms(s.zone_count||1,zones);
+}
+function collectSettings(){
+  const n=Math.min(+document.getElementById('zoneCount').value||1,MAXZ);
+  const body={
+    zone_count:n,
+    pulses_per_liter:+document.getElementById('ppl').value,
+    max_run_sec:+document.getElementById('maxRun').value,
+    daily_limit_ml:+document.getElementById('dailyLim').value,
+    dry_run_sec:+document.getElementById('dryRun').value,
+    zones:[]
+  };
+  for(let i=0;i<n;i++){
+    const sch=(document.getElementById('zSch'+i).value||'8:0').split(':');
+    body.zones.push({
+      name:document.getElementById('zN'+i).value,
+      moisture_low:+document.getElementById('zLo'+i).value,
+      moisture_high:+document.getElementById('zHi'+i).value,
+      volume_ml:+document.getElementById('zVol'+i).value,
+      schedule_hour:+sch[0]||0,
+      schedule_minute:+sch[1]||0,
+      cal_dry:+document.getElementById('zDry'+i).value,
+      cal_wet:+document.getElementById('zWet'+i).value,
+      auto_enabled:document.getElementById('zAuto'+i).checked,
+      schedule_enabled:document.getElementById('zSchE'+i).checked
+    });
+  }
+  return body;
+}
+async function saveAll(){
+  const body=collectSettings();
+  const r=await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r.ok){
+    await api('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ssid:document.getElementById('wifiSsid').value,password:document.getElementById('wifiPass').value,enabled:document.getElementById('wifiEn').checked})});
+    msg('已保存');
+    loadAll();
+  }else msg('保存失败');
+}
+async function doIrrigate(){
+  const zone=+document.getElementById('testZone').value;
+  const volume_ml=+document.getElementById('testMl').value;
   await api('/api/irrigate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone,volume_ml})});
-  document.getElementById('msg').textContent='已加入队列';
-  refresh();
+  msg('已加入浇水队列');refreshStatus();
 }
-async function estop(){await api('/api/emergency-stop',{method:'POST'});refresh()}
-async function saveWifi(){
-  await api('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ssid:document.getElementById('wifiSsid').value,password:document.getElementById('wifiPass').value,enabled:true})});
-  document.getElementById('msg').textContent='WiFi 已保存，请重启设备';
+async function doEstop(){await api('/api/emergency-stop',{method:'POST'});msg('急停');refreshStatus()}
+async function doStop(){await api('/api/stop',{method:'POST'});msg('已停止');refreshStatus()}
+async function doPump(on){await api('/api/test/pump',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:!!on})});refreshStatus()}
+async function doValve(z){await api('/api/test/valve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone:z})});refreshStatus()}
+function doValveSel(){doValve(+document.getElementById('testZone').value)}
+async function doCal(point){
+  const zone=+document.getElementById('testZone').value;
+  const r=await api('/api/cal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone,point})});
+  msg(r.ok?'标定 '+point+' Z'+zone+' = '+r.adc:'标定失败');
+  loadAll();
 }
-refresh();setInterval(refresh,2000);
+async function doFlow(){
+  const f=await api('/api/flow');
+  document.getElementById('flowInfo').innerHTML='<span class="label">流量计</span><span>'+f.pulses+' 脉冲 · '+f.volume_ml+' ml</span>';
+}
+loadAll();refreshStatus();setInterval(refreshStatus,2000);
 </script>
 </body>
 </html>)rawliteral";
 }  // namespace
+
+void WebServerUi::applyZoneCount(uint8_t n) {
+  if (ctx_ == nullptr || ctx_->config == nullptr) {
+    return;
+  }
+  if (n < MIN_ZONE_COUNT) {
+    n = MIN_ZONE_COUNT;
+  }
+  if (n > MAX_ZONES) {
+    n = MAX_ZONES;
+  }
+#if defined(BOARD_VALVE_COUNT)
+  if (n > BOARD_VALVE_COUNT) {
+    n = BOARD_VALVE_COUNT;
+  }
+#endif
+  ctx_->config->zone_count = n;
+  g_zone_manager.setCount(n);
+}
 
 void WebServerUi::begin(SystemContextEx *ctx) {
   ctx_ = ctx;
@@ -142,12 +295,20 @@ void WebServerUi::handleStatus() {
 
   JsonDocument doc;
   doc["board"] = BOARD_NAME;
+  doc["firmware"] = FIRMWARE_VERSION;
+  doc["max_zones"] = MAX_ZONES;
+#if defined(BOARD_VALVE_COUNT)
+  doc["max_valves"] = BOARD_VALVE_COUNT;
+#endif
   doc["pump"] = ctx_->status->pump_on;
+  doc["valve_on"] = ctx_->status->valve_on;
+  doc["active_valve"] = ctx_->status->active_valve;
   doc["state"] = ctx_->controller ? ctx_->controller->stateText() : "IDLE";
   doc["safety"] = ctx_->status->safety == SafetyState::Ok ? "OK" : "FAULT";
   doc["daily_ml"] = ctx_->status->daily_ml;
   doc["active_zone"] = ctx_->status->active_zone;
   doc["queue"] = ctx_->status->queue_len;
+  doc["session_ml"] = ctx_->status->session_ml;
 
   JsonObject wifi = doc["wifi"].to<JsonObject>();
   wifi["connected"] = WiFi.status() == WL_CONNECTED;
@@ -161,11 +322,16 @@ void WebServerUi::handleStatus() {
     z["name"] = ctx_->zones[i].name;
     z["moisture_pct"] = ctx_->zone_status[i].moisture_pct;
     z["moisture_adc"] = ctx_->zone_status[i].moisture_adc;
+    z["sensor_valid"] = ctx_->zone_status[i].sensor_valid;
     z["auto_enabled"] = ctx_->zones[i].auto_enabled;
     z["schedule_enabled"] = ctx_->zones[i].schedule_enabled;
     z["moisture_low"] = ctx_->zones[i].moisture_low;
     z["moisture_high"] = ctx_->zones[i].moisture_high;
     z["volume_ml"] = ctx_->zones[i].volume_ml;
+    z["schedule_hour"] = ctx_->zones[i].schedule_hour;
+    z["schedule_minute"] = ctx_->zones[i].schedule_minute;
+    z["cal_dry"] = ctx_->zones[i].cal_dry;
+    z["cal_wet"] = ctx_->zones[i].cal_wet;
   }
 
   String out;
@@ -185,6 +351,10 @@ void WebServerUi::handleSettingsGet() {
   doc["pulses_per_liter"] = ctx_->config->pulses_per_liter;
   doc["dry_run_sec"] = ctx_->config->dry_run_sec;
   doc["zone_count"] = ctx_->config->zone_count;
+  doc["max_zones"] = MAX_ZONES;
+#if defined(BOARD_VALVE_COUNT)
+  doc["max_valves"] = BOARD_VALVE_COUNT;
+#endif
 
   JsonArray zones = doc["zones"].to<JsonArray>();
   for (uint8_t i = 0; i < ctx_->config->zone_count; ++i) {
@@ -197,6 +367,8 @@ void WebServerUi::handleSettingsGet() {
     z["schedule_enabled"] = ctx_->zones[i].schedule_enabled;
     z["schedule_hour"] = ctx_->zones[i].schedule_hour;
     z["schedule_minute"] = ctx_->zones[i].schedule_minute;
+    z["cal_dry"] = ctx_->zones[i].cal_dry;
+    z["cal_wet"] = ctx_->zones[i].cal_wet;
   }
 
   String out;
@@ -224,6 +396,55 @@ void WebServerUi::handleSettingsPost() {
   }
   if (doc["pulses_per_liter"].is<uint16_t>()) {
     ctx_->config->pulses_per_liter = doc["pulses_per_liter"];
+  }
+  if (doc["dry_run_sec"].is<uint8_t>()) {
+    ctx_->config->dry_run_sec = doc["dry_run_sec"];
+  }
+  if (doc["zone_count"].is<uint8_t>()) {
+    applyZoneCount(doc["zone_count"]);
+  }
+
+  if (doc["zones"].is<JsonArray>()) {
+    JsonArray arr = doc["zones"].as<JsonArray>();
+    const uint8_t limit = ctx_->config->zone_count;
+    uint8_t i = 0;
+    for (JsonObject z : arr) {
+      if (i >= limit || i >= MAX_ZONES) {
+        break;
+      }
+      if (z["name"].is<const char *>()) {
+        strncpy(ctx_->zones[i].name, z["name"], sizeof(ctx_->zones[i].name) - 1);
+        ctx_->zones[i].name[sizeof(ctx_->zones[i].name) - 1] = '\0';
+      }
+      if (z["moisture_low"].is<uint8_t>()) {
+        ctx_->zones[i].moisture_low = z["moisture_low"];
+      }
+      if (z["moisture_high"].is<uint8_t>()) {
+        ctx_->zones[i].moisture_high = z["moisture_high"];
+      }
+      if (z["volume_ml"].is<uint16_t>()) {
+        ctx_->zones[i].volume_ml = z["volume_ml"];
+      }
+      if (z["auto_enabled"].is<bool>()) {
+        ctx_->zones[i].auto_enabled = z["auto_enabled"];
+      }
+      if (z["schedule_enabled"].is<bool>()) {
+        ctx_->zones[i].schedule_enabled = z["schedule_enabled"];
+      }
+      if (z["schedule_hour"].is<uint8_t>()) {
+        ctx_->zones[i].schedule_hour = z["schedule_hour"];
+      }
+      if (z["schedule_minute"].is<uint8_t>()) {
+        ctx_->zones[i].schedule_minute = z["schedule_minute"];
+      }
+      if (z["cal_dry"].is<uint16_t>()) {
+        ctx_->zones[i].cal_dry = z["cal_dry"];
+      }
+      if (z["cal_wet"].is<uint16_t>()) {
+        ctx_->zones[i].cal_wet = z["cal_wet"];
+      }
+      ++i;
+    }
   }
 
   SystemContext sc = {ctx_->config, ctx_->zones, ctx_->zone_status, ctx_->status};
@@ -254,6 +475,100 @@ void WebServerUi::handleEmergencyStop() {
     ctx_->controller->emergencyStop();
   }
   server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebServerUi::handleStop() {
+  if (ctx_ != nullptr && ctx_->controller != nullptr) {
+    ctx_->controller->stop();
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebServerUi::handleTestPump() {
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  const bool on = doc["on"] | false;
+  g_pump.set(on);
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebServerUi::handleTestValve() {
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  if (doc["zone"].is<int>() && doc["zone"].as<int>() >= 0) {
+    const uint8_t zone = doc["zone"].as<uint8_t>();
+    if (ctx_ != nullptr && zone < ctx_->config->zone_count) {
+      g_valves.open(zone);
+    } else {
+      server.send(400, "application/json", "{\"ok\":false}");
+      return;
+    }
+  } else {
+    g_valves.closeAll();
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebServerUi::handleCal() {
+  if (ctx_ == nullptr || !server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  const uint8_t zone = doc["zone"] | 0;
+  const char *point = doc["point"] | "";
+  if (zone >= ctx_->config->zone_count) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  const uint16_t adc = ctx_->zone_status[zone].moisture_adc;
+  if (strcmp(point, "dry") == 0) {
+    ctx_->zones[zone].cal_dry = adc;
+  } else if (strcmp(point, "wet") == 0) {
+    ctx_->zones[zone].cal_wet = adc;
+  } else {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  SystemContext sc = {ctx_->config, ctx_->zones, ctx_->zone_status, ctx_->status};
+  g_settings.save(sc);
+
+  JsonDocument out;
+  out["ok"] = true;
+  out["adc"] = adc;
+  String s;
+  serializeJson(out, s);
+  server.send(200, "application/json", s);
+}
+
+void WebServerUi::handleFlow() {
+  JsonDocument doc;
+  doc["pulses"] = g_flow.pulses();
+  if (ctx_ != nullptr && ctx_->config != nullptr) {
+    doc["volume_ml"] = g_flow.volumeMl(ctx_->config->pulses_per_liter);
+    doc["pulses_per_liter"] = ctx_->config->pulses_per_liter;
+  }
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
 }
 
 void WebServerUi::handleWifiGet() {
@@ -303,6 +618,11 @@ void WebServerUi::setupRoutes() {
   server.on("/api/settings", HTTP_POST, [this]() { handleSettingsPost(); });
   server.on("/api/irrigate", HTTP_POST, [this]() { handleIrrigate(); });
   server.on("/api/emergency-stop", HTTP_POST, [this]() { handleEmergencyStop(); });
+  server.on("/api/stop", HTTP_POST, [this]() { handleStop(); });
+  server.on("/api/test/pump", HTTP_POST, [this]() { handleTestPump(); });
+  server.on("/api/test/valve", HTTP_POST, [this]() { handleTestValve(); });
+  server.on("/api/cal", HTTP_POST, [this]() { handleCal(); });
+  server.on("/api/flow", HTTP_GET, [this]() { handleFlow(); });
   server.on("/api/wifi", HTTP_GET, [this]() { handleWifiGet(); });
   server.on("/api/wifi", HTTP_POST, [this]() { handleWifiPost(); });
 }

@@ -1,12 +1,13 @@
 #pragma once
 
-#include "boards/board_c3.h"
+// Zone limits must be defined before platform.h (board_io_map.h uses MAX_ZONES)
+#define MAX_ZONES 10
 
-#define FIRMWARE_VERSION "1.0"
+#include "platform.h"
 
-// Zone limits
-#define MAX_ZONES 4
+#define FIRMWARE_VERSION "2.1"
 #define ACTIVE_ZONES 2
+#define MIN_ZONE_COUNT 1
 
 // Moisture defaults (%)
 #define DEFAULT_MOISTURE_LOW 30
@@ -18,6 +19,7 @@
 #define DEFAULT_DAILY_LIMIT_ML 2000U
 #define DEFAULT_PULSES_PER_LITER 450
 #define DEFAULT_DRY_RUN_SEC 3
+#define DEFAULT_VALVE_SETTLE_MS 500
 
 // ADC calibration defaults (12-bit)
 #define DEFAULT_CAL_DRY 3200

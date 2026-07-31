@@ -1,23 +1,19 @@
 #include "sensor/moisture_sensor.h"
 
-#include <Arduino.h>
+#include "config.h"
+#include "sensor/ads1115.h"
 
-MoistureSensor::MoistureSensor(uint8_t pin) : pin_(pin) {}
+MoistureSensor::MoistureSensor(uint8_t zone_index) : zone_index_(zone_index) {}
 
-void MoistureSensor::begin() {
-  pinMode(pin_, INPUT);
-  analogReadResolution(12);
-  analogSetAttenuation(ADC_11db);
-}
+void MoistureSensor::begin() {}
 
 bool MoistureSensor::read(uint16_t &adc_out, uint8_t &pct_out) const {
-  const int raw = analogRead(pin_);
-  if (raw < 0) {
+  pct_out = 0;
+  if (zone_index_ >= MAX_ZONES) {
     return false;
   }
-  adc_out = static_cast<uint16_t>(raw);
-  pct_out = 0;
-  return true;
+  const AdsChannel &ch = kMoistureAds[zone_index_];
+  return g_ads1115.readScaled12(ch.addr, ch.channel, adc_out);
 }
 
 uint8_t MoistureSensor::adcToPercent(uint16_t adc, uint16_t cal_dry, uint16_t cal_wet) {

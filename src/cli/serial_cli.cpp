@@ -3,14 +3,18 @@
 #include <Arduino.h>
 
 #include "actuator/pump_driver.h"
+#include "actuator/valve_driver.h"
 #include "config.h"
 #include "control/irrigation_controller.h"
+#include "control/zone_manager.h"
 #include "safety/safety_monitor.h"
 #include "sensor/flow_meter.h"
 #include "storage/settings_store.h"
 
 extern PumpDriver g_pump;
+extern ValveDriver g_valves;
 extern FlowMeter g_flow;
+extern ZoneManager g_zone_manager;
 extern SettingsStore g_settings;
 
 void SerialCli::begin(SystemContextEx *ctx) {
@@ -31,6 +35,8 @@ void SerialCli::printHelp() const {
   Serial.println(F("  cal dry|wet <z>   - moisture calibration"));
   Serial.println(F("  flow              - pulse count"));
   Serial.println(F("  pump on|off       - debug pump"));
+  Serial.println(F("  valve <z>|off     - debug valve"));
+  Serial.println(F("  set zones <n>     - active zone count (1-10)"));
   Serial.println(F("  ppl <n>           - pulses per liter"));
   Serial.println(F("  wifi ssid|pass|on|off"));
   Serial.println(F("  save              - save to NVS"));
@@ -42,6 +48,13 @@ void SerialCli::printStatus() const {
   }
   Serial.print(F("[status] pump="));
   Serial.print(ctx_->status->pump_on ? F("ON") : F("OFF"));
+  Serial.print(F(" valve="));
+  if (ctx_->status->valve_on && ctx_->status->active_valve >= 0) {
+    Serial.print(F("Z"));
+    Serial.print(ctx_->status->active_valve);
+  } else {
+    Serial.print(F("OFF"));
+  }
   Serial.print(F(" state="));
   if (ctx_->controller != nullptr) {
     Serial.print(ctx_->controller->stateText());
@@ -119,7 +132,31 @@ void SerialCli::dispatch(const char *line) {
     char *what = strtok(nullptr, " ");
     char *z = strtok(nullptr, " ");
     char *val = strtok(nullptr, " ");
-    if (what && z && val && ctx_->zones) {
+    if (what && ctx_->zones) {
+      if (strcmp(what, "zones") == 0) {
+        if (!z) {
+          return;
+        }
+        uint8_t n = static_cast<uint8_t>(atoi(z));
+        if (n < MIN_ZONE_COUNT) {
+          n = MIN_ZONE_COUNT;
+        }
+        if (n > MAX_ZONES) {
+          n = MAX_ZONES;
+        }
+#if defined(BOARD_VALVE_COUNT)
+        if (n > BOARD_VALVE_COUNT) {
+          n = BOARD_VALVE_COUNT;
+        }
+#endif
+        ctx_->config->zone_count = n;
+        g_zone_manager.setCount(n);
+        Serial.printf("OK zones=%u\n", n);
+        return;
+      }
+      if (!z || !val) {
+        return;
+      }
       const uint8_t zi = static_cast<uint8_t>(atoi(z));
       if (zi >= ctx_->config->zone_count) {
         return;
@@ -138,6 +175,20 @@ void SerialCli::dispatch(const char *line) {
         }
       }
       Serial.println(F("OK"));
+    }
+  } else if (strcmp(cmd, "valve") == 0) {
+    char *arg = strtok(nullptr, " ");
+    if (arg) {
+      if (strcmp(arg, "off") == 0) {
+        g_valves.closeAll();
+        Serial.println(F("OK"));
+      } else {
+        const uint8_t zi = static_cast<uint8_t>(atoi(arg));
+        if (zi < ctx_->config->zone_count) {
+          g_valves.open(zi);
+          Serial.println(F("OK"));
+        }
+      }
     }
   } else if (strcmp(cmd, "schedule") == 0) {
     char *z = strtok(nullptr, " ");

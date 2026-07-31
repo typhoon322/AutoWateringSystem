@@ -5,6 +5,7 @@
 enum class IrrigationState : uint8_t {
   Idle,
   Checking,
+  Valving,
   Pumping,
   Done,
   Fault,
@@ -61,7 +62,9 @@ struct SystemStatus {
   IrrigationState state;
   SafetyState safety;
   bool pump_on;
+  bool valve_on;
   int8_t active_zone;
+  int8_t active_valve;
   uint32_t daily_ml;
   uint8_t queue_len;
   uint16_t session_ml;
