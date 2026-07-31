@@ -1,0 +1,315 @@
+# 开发文档
+
+> 版本：1.0 | 最后更新：2026-08-01
+
+## 1. 开发环境
+
+| 工具 | 版本要求 |
+|------|----------|
+| [PlatformIO](https://platformio.org/) | Core 6+ |
+| VS Code + PlatformIO 扩展 | 推荐 |
+| Python | 3.8+（PlatformIO 依赖） |
+
+### 1.1 克隆与打开
+
+```bash
+cd /path/to/AutoIrrigationSystem/Untitled
+pio run -e esp32-c3-irrigation
+```
+
+### 1.2 编译 / 烧录 / 监控
+
+```bash
+# 编译
+pio run -e esp32-c3-irrigation
+
+# 烧录
+pio run -e esp32-c3-irrigation -t upload
+
+# 串口监控
+pio device monitor -b 115200
+
+# 上传文件系统（若使用 data/ 静态资源）
+pio run -e esp32-c3-irrigation -t uploadfs
+```
+
+---
+
+## 2. 目录结构
+
+```
+.
+├── platformio.ini
+├── include/
+│   ├── config.h                 # 全局默认参数
+│   ├── boards/
+│   │   └── board_c3.h           # C3 引脚定义
+│   └── types/
+│       └── zone_config.h        # 分区与系统配置结构体
+├── src/
+│   ├── main.cpp
+│   ├── sensor/
+│   │   ├── moisture_sensor.h/cpp
+│   │   └── flow_meter.h/cpp
+│   ├── actuator/
+│   │   └── pump_driver.h/cpp
+│   ├── control/
+│   │   ├── zone_manager.h/cpp
+│   │   └── irrigation_controller.h/cpp
+│   ├── safety/
+│   │   └── safety_monitor.h/cpp
+│   ├── storage/
+│   │   └── settings_store.h/cpp
+│   ├── web/
+│   │   └── web_server.h/cpp
+│   ├── cli/
+│   │   └── serial_cli.h/cpp
+│   └── ota/
+│       └── firmware_ota.h/cpp
+├── data/                        # LittleFS（可选扩展）
+└── docs/
+    ├── system-design.md
+    ├── development.md           # 本文件
+    ├── user-manual.md
+    ├── wiring.md
+    ├── bom.md
+    └── DOC_MAP.md
+```
+
+### 2.1 模块依赖
+
+```mermaid
+flowchart TD
+    main --> IC[IrrigationController]
+    main --> WS[WebServer]
+    main --> CLI[SerialCli]
+    IC --> ZM[ZoneManager]
+    IC --> SM[SafetyMonitor]
+    IC --> PD[PumpDriver]
+    IC --> FM[FlowMeter]
+    ZM --> MS[MoistureSensor]
+    WS --> SS[SettingsStore]
+    SS --> IC
+```
+
+---
+
+## 3. 配置项
+
+### 3.1 编译期常量（`include/config.h`）
+
+| 宏 | 默认 | 说明 |
+|----|------|------|
+| `MAX_ZONES` | 4 | 最大分区数 |
+| `ACTIVE_ZONES` | 2 | 初版激活分区 |
+| `DEFAULT_MOISTURE_LOW` | 30 | 湿度下限 % |
+| `DEFAULT_MOISTURE_HIGH` | 60 | 湿度上限 % |
+| `DEFAULT_VOLUME_ML` | 100 | 单次体积 mL |
+| `DEFAULT_MAX_RUN_SEC` | 60 | 最长泵运行 s |
+| `DEFAULT_DAILY_LIMIT_ML` | 2000 | 日限额 mL |
+| `DEFAULT_PULSES_PER_LITER` | 450 | YF-S201 典型值 |
+| `DEFAULT_DRY_RUN_SEC` | 3 | 干转判定 s |
+| `SAMPLE_INTERVAL_MS` | 5000 | 湿度采样周期 |
+| `STATUS_PRINT_INTERVAL_MS` | 1000 | 状态行周期 |
+| `RADIO_WIFI_DEFAULT_ENABLED` | 0 | WiFi 默认关 |
+
+### 3.2 NVS 键名（namespace: `irrigation`）
+
+| Key | 类型 | 说明 |
+|-----|------|------|
+| `magic` | uint32 | 0x49525247 |
+| `maxRun` | uint16 | max_run_sec |
+| `dailyLim` | uint32 | daily_limit_ml |
+| `ppl` | uint16 | pulses_per_liter |
+| `dryRun` | uint8 | dry_run_sec |
+| `zCnt` | uint8 | zone_count |
+| `zN{i}` | string | zone name, i=0..3 |
+| `zML{i}` | uint8 | moisture_low |
+| `zMH{i}` | uint8 | moisture_high |
+| `zVol{i}` | uint16 | volume_ml |
+| `zAuto{i}` | uint8 | auto_enabled |
+| `zSchE{i}` | uint8 | schedule_enabled |
+| `zSchH{i}` | uint8 | schedule_hour |
+| `zSchM{i}` | uint8 | schedule_minute |
+| `zDry{i}` | uint16 | cal_dry adc |
+| `zWet{i}` | uint16 | cal_wet adc |
+| `wifiEn` | uint8 | WiFi enabled |
+| `wifiSSID` | string | SSID |
+| `wifiPass` | string | password |
+
+---
+
+## 4. 串口 CLI
+
+- 波特率：**115200**
+- 行结束：`\n`
+
+### 4.1 命令列表
+
+| 命令 | 说明 |
+|------|------|
+| `help` | 显示命令列表 |
+| `status` | 全局与各分区状态 |
+| `zone <n> status` | 指定分区详情 |
+| `water <zone> <ml>` | 手动浇水 |
+| `stop` | 停泵并清除故障锁定 |
+| `auto on\|off [zone]` | 启用/禁用阈值模式 |
+| `set low <zone> <pct>` | 设置湿度下限 |
+| `set high <zone> <pct>` | 设置湿度上限 |
+| `set vol <zone> <ml>` | 设置单次体积 |
+| `set schedule <zone> <HH:MM>` | 设置定时 |
+| `schedule <zone> on\|off` | 开关定时模式 |
+| `cal dry <zone>` | 当前 ADC 存为干土点 |
+| `cal wet <zone>` | 当前 ADC 存为湿土点 |
+| `flow` | 显示脉冲计数与体积 |
+| `pump on\|off` | 调试：直接开关泵（绕过控制器） |
+| `ppl <n>` | 设置 pulses_per_liter |
+| `wifi ssid <name>` | 设置 WiFi SSID |
+| `wifi pass <pass>` | 设置 WiFi 密码 |
+| `wifi on\|off` | 开关 WiFi |
+| `save` | 保存当前配置到 NVS |
+
+### 4.2 周期状态行
+
+约每秒输出：
+
+```
+[status] pump=OFF state=IDLE safety=OK daily=0ml Z0=45% Z1=52% queue=0
+```
+
+| 字段 | 含义 |
+|------|------|
+| `pump` | ON / OFF |
+| `state` | IDLE / CHECKING / PUMPING / DONE / FAULT |
+| `safety` | OK / TIMEOUT / DRY_RUN / DAILY_LIMIT / LOCKED |
+| `daily` | 今日累计 mL |
+| `Z{n}` | 分区湿度 % |
+| `queue` | 等待队列长度 |
+
+---
+
+## 5. Web API
+
+Base URL: `http://<device-ip>/`
+
+### 5.1 GET /api/status
+
+```json
+{
+  "board": "ESP32-C3-Irrigation",
+  "pump": false,
+  "state": "IDLE",
+  "safety": "OK",
+  "daily_ml": 120,
+  "active_zone": -1,
+  "queue": 0,
+  "wifi": { "connected": true, "ip": "192.168.1.100", "rssi": -55 },
+  "zones": [
+    {
+      "id": 0,
+      "name": "Zone0",
+      "moisture_pct": 45,
+      "moisture_adc": 2100,
+      "auto_enabled": true,
+      "schedule_enabled": false,
+      "moisture_low": 30,
+      "moisture_high": 60,
+      "volume_ml": 100
+    }
+  ]
+}
+```
+
+### 5.2 GET /api/settings
+
+返回完整 `SystemConfig` + `ZoneConfig[]` JSON。
+
+### 5.3 POST /api/settings
+
+Body 为部分或全部配置字段，保存到 NVS。
+
+### 5.4 POST /api/irrigate
+
+```json
+{ "zone": 0, "volume_ml": 150 }
+```
+
+### 5.5 POST /api/emergency-stop
+
+无 body，立即停泵。
+
+### 5.6 GET/POST /api/wifi
+
+GET 返回连接状态；POST 设置 `ssid`, `password`, `enabled`。
+
+---
+
+## 6. 标定流程
+
+### 6.1 流量计标定
+
+1. 准备量杯（已知体积，如 500 mL）
+2. `pump on` 或 `water 0 9999` 让水流通
+3. 记录 CLI `flow` 显示的脉冲数 `P`
+4. `ppl = P * 1000 / volume_ml`
+5. `ppl <value>` 写入，`save`
+
+默认 YF-S201：**450** pulse/L（1 L ≈ 450 脉冲）。
+
+### 6.2 湿度传感器标定
+
+1. 探头置于 **完全干燥** 盆土 → `cal dry 0`
+2. 充分浇透后 → `cal wet 0`
+3. `save`
+4. 对 Zone 1 重复：`cal dry 1` / `cal wet 1`
+
+未校准时使用默认 ADC：干 3200 / 湿 1400（12-bit）。
+
+---
+
+## 7. 测试清单
+
+### 7.1 单元 / 逻辑（无硬件）
+
+- [ ] 编译通过 `pio run -e esp32-c3-irrigation`
+- [ ] 状态机：模拟体积达标后转 Done
+- [ ] 日限额：累计超限后拒绝 auto
+
+### 7.2 硬件联调
+
+| 步骤 | 操作 | 预期 |
+|------|------|------|
+| 1 | 上电，串口 monitor | 打印 Board 名与版本 |
+| 2 | `status` | 显示 Z0/Z1 湿度 |
+| 3 | `pump on` 1 秒 | 继电器吸合，**立即** `pump off` |
+| 4 | 通水，`water 0 50` | 约 50 mL 后自动停泵 |
+| 5 | 干转测试（无水） | 3 s 内报 DRY_RUN |
+| 6 | WiFi `wifi on`，连接 AP | Web 可访问 |
+| 7 | Web 手动浇水 | 与 CLI 行为一致 |
+| 8 | 断电重启 | 配置保留 |
+
+### 7.3 Wokwi 仿真（v1.1 计划）
+
+- 用电位器模拟 ADC 湿度
+- LED 模拟泵输出
+- 按钮模拟脉冲输入
+
+---
+
+## 8. 文档同步
+
+修改代码时对照 [DOC_MAP.md](DOC_MAP.md) 更新对应文档。Cursor 规则见 [`.cursor/rules/documentation-sync.mdc`](../.cursor/rules/documentation-sync.mdc)。
+
+---
+
+## 9. 默认参数汇总
+
+| 参数 | 值 |
+|------|-----|
+| 湿度下限 / 上限 | 30% / 60% |
+| 单次体积 | 100 mL |
+| 最长泵运行 | 60 s |
+| 日限额 | 2000 mL |
+| pulses_per_liter | 450 |
+| 干转判定 | 3 s |
+| 采样间隔 | 5 s |

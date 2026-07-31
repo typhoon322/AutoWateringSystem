@@ -1,0 +1,35 @@
+---
+description: 修改完成且测试通过后自动 push 到 GitHub
+alwaysApply: true
+---
+
+# Git 推送规则
+
+远端仓库：`git@github.com:typhoon322/AutoWateringSystem.git`
+
+## 完成标准
+
+任务完成前必须：
+
+1. **验证**：运行 `~/.platformio/penv/bin/pio run -e esp32-c3-irrigation`，确认编译 SUCCESS
+2. **文档**：若改了固件/硬件，按 `documentation-sync.mdc` 同步 docs
+3. **提交**：用户未禁止时，将相关变更加入 commit（不写含密钥的文件）
+4. **推送**：`git push origin HEAD` 到远端
+
+## 推送命令
+
+```bash
+git add <相关文件>
+git commit -m "$(cat <<'EOF'
+简要说明变更原因。
+
+EOF
+)"
+git push origin HEAD
+```
+
+## 禁止
+
+- 编译失败仍 push
+- push 到 main/master 时使用 `--force`（除非用户明确要求）
+- 提交 `.env`、WiFi 密码等敏感信息

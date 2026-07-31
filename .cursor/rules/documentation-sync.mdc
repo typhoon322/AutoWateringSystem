@@ -1,0 +1,43 @@
+---
+description: 固件或硬件变更时必须同步更新文档
+globs: src/**,include/**,platformio.ini,data/**
+alwaysApply: false
+---
+
+# 文档同步规则
+
+修改匹配 glob 的文件后，**必须**对照 [docs/DOC_MAP.md](docs/DOC_MAP.md) 更新相关文档。
+
+## 强制检查项
+
+1. **引脚变更**（`include/boards/board_c3.h`）
+   - 更新 `docs/wiring.md` 引脚表
+   - 更新 `docs/system-design.md` §3.3
+   - 更新 `docs/development.md` 配置说明
+
+2. **API / CLI 变更**（`src/web/`, `src/cli/`）
+   - 更新 `docs/development.md` 命令与 API 章节
+   - 若用户可见，更新 `docs/user-manual.md`
+
+3. **控制逻辑 / 安全**（`src/control/`, `src/safety/`）
+   - 更新 `docs/system-design.md` 状态机与安全表
+   - 更新 `docs/user-manual.md` 故障排查
+
+4. **默认值 / NVS 键**（`include/config.h`, `src/storage/`）
+   - 更新 `docs/development.md` NVS 与默认值表
+   - 必要时更新 `docs/user-manual.md`
+
+5. **新模块**
+   - 在 `docs/DOC_MAP.md` 追加映射行
+   - 更新 `docs/system-design.md` 模块表
+
+## 完成标准
+
+- 文档中的引脚、默认值、命令、API 与代码一致
+- `docs/DOC_MAP.md` 版本记录追加条目（若有结构性变更）
+- README 链接仍有效
+
+## 禁止
+
+- 仅改代码不更新文档就标记任务完成
+- 在文档中保留已与代码矛盾的旧引脚或 API
