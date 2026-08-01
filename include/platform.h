@@ -10,7 +10,7 @@
  *
  * Board variants (only MCU pins / build target differ):
  *
- *   BOARD_C3_OLED_TEST  — ESP32-C3 + OLED dev board (I2C GPIO6/7)
+ *   BOARD_C3_OLED_TEST  — 01Space ESP32-C3 0.42" OLED (I2C GPIO5/6, FH4 4MB)
  *   BOARD_S3_IRRIGATION — ESP32-S3 production (I2C GPIO8/9)
  *
  * PlatformIO:

@@ -37,7 +37,7 @@ pio run -e esp32-c3-oled-test -t uploadfs
 
 | PlatformIO env | MCU | 用途 |
 |----------------|-----|------|
-| `esp32-c3-oled-test` | ESP32-C3 + OLED | 前期验证（I2C GPIO6/7） |
+| `esp32-c3-oled-test` | ESP32-C3 0.42" OLED | 前期验证（I2C GPIO5/6，[板级说明](board-esp32-c3-042-oled.md)） |
 | `esp32-s3-irrigation` | ESP32-S3 | 量产（I2C GPIO8/9，扩展板不变） |
 
 ---

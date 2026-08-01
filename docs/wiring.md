@@ -16,12 +16,14 @@
 
 ## MCU 直连（因板型而异）
 
-| 功能 | C3 OLED 测试 (`board_c3_oled.h`) | S3 量产 (`board_s3.h`) |
-|------|----------------------------------|------------------------|
-| I2C SDA / SCL | GPIO6 / GPIO7 | GPIO8 / GPIO9 |
+| 功能 | C3 0.42" OLED (`board_c3_oled.h`) | S3 量产 (`board_s3.h`) |
+|------|-----------------------------------|------------------------|
+| I2C SDA / SCL | GPIO **5 / 6**（与板载 OLED 共用） | GPIO8 / GPIO9 |
 | 水泵继电器 | GPIO3 | GPIO4 |
-| 流量计脉冲 | GPIO5 | GPIO5 |
-| RGB LED | GPIO8 | GPIO48 |
+| 流量计脉冲 | GPIO **7** | GPIO5 |
+| 状态 LED | GPIO8（低电平亮） | GPIO48 |
+
+> C3 0.42 板详情见 [board-esp32-c3-042-oled.md](board-esp32-c3-042-oled.md)。**GPIO5/6 为 I2C，不可接流量计。**
 
 ## 电容式土壤湿度
 

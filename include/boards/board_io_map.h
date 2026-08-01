@@ -8,7 +8,7 @@
  *
  * Moisture: 3× ADS1115 @ 0x48/0x49/0x4A → 10 single-ended channels
  * Valves:   1× PCA9555 @ 0x20 → outputs P0–P9 (one NC valve relay each)
- * OLED:     0x3C on same I2C bus (C3 test board)
+ * OLED:     0x3C on same I2C bus (0.42" SSD1306 on C3 dev board, SDA=5 SCL=6)
  */
 
 #define IRRIGATION_USE_I2C_EXPANDERS 1

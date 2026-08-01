@@ -15,7 +15,7 @@
 |----------|-------------|----------|
 | `include/platform.h` | system-design, development, README | MCU/板型策略 |
 | `include/boards/board_io_map.h` | system-design, wiring, bom, development | I2C 地址、通道/位映射 |
-| `include/boards/board_c3_oled.h` | system-design, wiring, development, README, bom | C3 测试 MCU 引脚 |
+| `include/boards/board_c3_oled.h` | board-esp32-c3-042-oled, system-design, wiring, development, bom, README |
 | `include/boards/board_s3.h` | system-design, wiring, development, README, bom | S3 量产 MCU 引脚 |
 | `include/config.h` | system-design, development, user-manual | 默认值、宏常量 |
 | `include/types/zone_config.h` | system-design, development | 数据结构、字段 |
@@ -47,6 +47,7 @@
 | user-manual | `docs/user-manual.md` |
 | wiring | `docs/wiring.md` |
 | bom | `docs/bom.md` |
+| board-c3 | `docs/board-esp32-c3-042-oled.md` |
 | README | `README.md` |
 
 ## 变更类型速查
@@ -67,3 +68,4 @@
 | 2026-08-01 | 初版创建，v1.0 文档与代码基线 |
 | 2026-08-01 | v2.1：I2C 扩展板（10 盆）、C3 验证 / S3 量产、更新 BOM 与映射 |
 | 2026-08-01 | BOM v2.1：电磁阀两通常闭、流量计/止回阀/分水器；管长标定文档 |
+| 2026-08-01 | C3 0.42 OLED 板：引脚改为 I2C 5/6、流量计 GPIO7；新增 board-esp32-c3-042-oled.md |

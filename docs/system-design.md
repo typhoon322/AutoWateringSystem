@@ -13,7 +13,7 @@
 | 项目 | 约定 |
 |------|------|
 | **架构** | **I2C 扩展子板**（3× ADS1115 + 1× PCA9555），最多 **10 盆** |
-| **前期验证** | ESP32-C3 + OLED（`BOARD_C3_OLED_TEST`，I2C GPIO6/7） |
+| **前期验证** | 01Space ESP32-C3 0.42" OLED（`BOARD_C3_OLED_TEST`，I2C GPIO5/6） |
 | **量产** | ESP32-S3（`BOARD_S3_IRRIGATION`，I2C GPIO8/9） |
 | **换板策略** | **扩展子板接线不变，只换 MCU 模块** |
 | **代码入口** | `include/platform.h` → `board_c3_oled.h` / `board_s3.h` + 共用 `board_io_map.h` |
@@ -162,12 +162,12 @@ flowchart TB
 
 **MCU 直连**（因板型而异，见 `board_c3_oled.h` / `board_s3.h`）：
 
-| 功能 | C3 OLED 测试 | S3 量产 |
-|------|--------------|---------|
-| I2C SDA / SCL | GPIO6 / GPIO7 | GPIO8 / GPIO9 |
+| 功能 | C3 0.42" OLED | S3 量产 |
+|------|---------------|---------|
+| I2C SDA / SCL | GPIO **5 / 6** | GPIO8 / GPIO9 |
 | 水泵继电器 | GPIO3 | GPIO4 |
-| 流量计 | GPIO5 | GPIO5 |
-| RGB LED | GPIO8 | GPIO48 |
+| 流量计 | GPIO **7** | GPIO5 |
+| 状态 LED | GPIO8（低电平亮） | GPIO48 |
 
 **I2C 扩展板**（两板相同，见 `board_io_map.h`）：
 
