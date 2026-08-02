@@ -177,6 +177,9 @@ void SerialCli::dispatch(const char *line) {
       Serial.println(F("OK"));
     }
   } else if (strcmp(cmd, "valve") == 0) {
+#if !IRRIGATION_HAS_VALVES
+    Serial.println(F("Valves disabled in this build."));
+#else
     char *arg = strtok(nullptr, " ");
     if (arg) {
       if (strcmp(arg, "off") == 0) {
@@ -190,6 +193,7 @@ void SerialCli::dispatch(const char *line) {
         }
       }
     }
+#endif
   } else if (strcmp(cmd, "schedule") == 0) {
     char *z = strtok(nullptr, " ");
     char *onoff = strtok(nullptr, " ");
@@ -216,9 +220,13 @@ void SerialCli::dispatch(const char *line) {
       }
     }
   } else if (strcmp(cmd, "flow") == 0) {
+#if !IRRIGATION_HAS_FLOW_METER
+    Serial.println(F("Flow meter disabled in this build."));
+#else
     Serial.printf("pulses=%lu vol=%u ml (ppl=%u)\n", g_flow.pulses(),
                   g_flow.volumeMl(ctx_->config->pulses_per_liter),
                   ctx_->config->pulses_per_liter);
+#endif
   } else if (strcmp(cmd, "pump") == 0) {
     char *onoff = strtok(nullptr, " ");
     if (onoff) {

@@ -59,7 +59,29 @@
 | 9 | BOOT 键，勿强下拉 |
 | 20, 21 | USB 串口，避免占用 |
 
-## 编译与烧录
+## 仅泵联调（暂无阀 / 流量计）
+
+当前 `esp32-c3-oled-test` 编译选项默认关闭阀与流量计（见 `platformio.ini` 中 `IRRIGATION_HAS_*=0`）。
+
+| 接线 | 说明 |
+|------|------|
+| 水泵继电器 IN | **GPIO3** |
+| 继电器 VCC/GND | 5 V / GND（与 ESP32 共地） |
+| 泵 12 V | 经继电器常开触点 |
+
+**串口测试：**
+
+```
+pump on          # 直接开泵（调试）
+pump off
+water 0 100      # 按时间估算约 100 ml（默认 ~10 ml/s，约 10 s）
+stop             # 急停
+set zones 1      # 单盆模式
+```
+
+上电应看到 `INFO: valves disabled` / `INFO: flow meter disabled`。装好阀或流量计后，把 `platformio.ini` 里对应宏改回 `1` 并重新烧录。
+
+---
 
 ```bash
 pio run -e esp32-c3-oled-test -t upload

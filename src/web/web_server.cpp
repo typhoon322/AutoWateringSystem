@@ -53,6 +53,9 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 .chk input{width:auto;margin:0}
 .msg{text-align:center;font-size:.8rem;color:var(--muted);padding:8px 0;min-height:1.2em}
 .live{font-size:.8rem;color:var(--muted);text-align:right;margin-bottom:6px}
+.fault-banner{border-color:var(--warn)!important;background:#2a1515}
+.fault-banner h2{color:var(--warn)}
+.fault-banner p{font-size:.85rem;margin:6px 0 10px;color:#ffb4b4}
 </style>
 </head>
 <body>
@@ -61,6 +64,12 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 <div class="live" id="liveHint">刷新中…</div>
 
 <div class="card" id="statusCard"><h2>实时状态</h2><div id="statusBody">加载中…</div></div>
+
+<div class="card fault-banner" id="faultBanner" style="display:none">
+<h2>故障锁定</h2>
+<p id="faultText">系统已停止，需手动恢复。</p>
+<button class="btn-go" style="width:100%" onclick="doStop()">清除故障 · 恢复运行</button>
+</div>
 
 <div class="card">
 <h2>系统参数</h2>
@@ -118,6 +127,12 @@ function msg(t){document.getElementById('msg').textContent=t}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
 async function refreshStatus(){
   const d=await api('/api/status');
+  const fault=d.fault||d.state==='FAULT';
+  document.getElementById('faultBanner').style.display=fault?'block':'none';
+  if(fault){
+    document.getElementById('faultText').textContent=
+      '原因: '+(d.safety||'?')+' · 排除问题后点击下方按钮解除锁定（等同串口 stop）';
+  }
   document.getElementById('statusBody').innerHTML=
     '<div class="row"><span class="label">板型</span><span>'+esc(d.board)+' v'+esc(d.firmware||'?')+'</span></div>'+
     '<div class="row"><span class="label">状态</span><span>'+d.state+' / '+d.safety+'</span></div>'+
@@ -208,7 +223,7 @@ async function doIrrigate(){
   msg('已加入浇水队列');refreshStatus();
 }
 async function doEstop(){await api('/api/emergency-stop',{method:'POST'});msg('急停');refreshStatus()}
-async function doStop(){await api('/api/stop',{method:'POST'});msg('已停止');refreshStatus()}
+async function doStop(){await api('/api/stop',{method:'POST'});msg('故障已清除，可继续操作');refreshStatus()}
 async function doPump(on){await api('/api/test/pump',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:!!on})});refreshStatus()}
 async function doValve(z){await api('/api/test/valve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone:z})});refreshStatus()}
 function doValveSel(){doValve(+document.getElementById('testZone').value)}
@@ -287,6 +302,27 @@ void WebServerUi::startWiFi() {
 
 void WebServerUi::handleRoot() { server.send_P(200, "text/html", kDashboardHtml); }
 
+namespace {
+
+const char *safetyDetail(SafetyState state) {
+  switch (state) {
+    case SafetyState::Ok:
+      return "OK";
+    case SafetyState::Timeout:
+      return "TIMEOUT";
+    case SafetyState::DryRun:
+      return "DRY_RUN";
+    case SafetyState::DailyLimit:
+      return "DAILY_LIMIT";
+    case SafetyState::Locked:
+      return "LOCKED";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+}  // namespace
+
 void WebServerUi::handleStatus() {
   if (ctx_ == nullptr) {
     server.send(500, "application/json", "{}");
@@ -304,7 +340,8 @@ void WebServerUi::handleStatus() {
   doc["valve_on"] = ctx_->status->valve_on;
   doc["active_valve"] = ctx_->status->active_valve;
   doc["state"] = ctx_->controller ? ctx_->controller->stateText() : "IDLE";
-  doc["safety"] = ctx_->status->safety == SafetyState::Ok ? "OK" : "FAULT";
+  doc["safety"] = safetyDetail(ctx_->status->safety);
+  doc["fault"] = ctx_->status->state == IrrigationState::Fault;
   doc["daily_ml"] = ctx_->status->daily_ml;
   doc["active_zone"] = ctx_->status->active_zone;
   doc["queue"] = ctx_->status->queue_len;

@@ -21,6 +21,16 @@
 #define DEFAULT_DRY_RUN_SEC 3
 #define DEFAULT_VALVE_SETTLE_MS 500
 
+// Hardware present (override in platformio build_flags for bring-up)
+#ifndef IRRIGATION_HAS_FLOW_METER
+#define IRRIGATION_HAS_FLOW_METER 1
+#endif
+#ifndef IRRIGATION_HAS_VALVES
+#define IRRIGATION_HAS_VALVES 1
+#endif
+// When flow meter absent: estimate volume from pump run time (ml/s, tune empirically)
+#define DEFAULT_PUMP_FLOW_ML_PER_SEC 10
+
 // ADC calibration defaults (12-bit)
 #define DEFAULT_CAL_DRY 3200
 #define DEFAULT_CAL_WET 1400

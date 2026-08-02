@@ -36,7 +36,17 @@ ZoneStatus g_zone_status[MAX_ZONES];
 SystemStatus g_sys_status;
 
 ZoneManager g_zone_manager(g_moisture_sensors, g_zone_configs, g_zone_status, MAX_ZONES);
-IrrigationController g_controller(&g_zone_manager, &g_pump, &g_valves, &g_flow, &g_safety,
+#if IRRIGATION_HAS_VALVES
+ValveDriver *const g_valves_ptr = &g_valves;
+#else
+ValveDriver *const g_valves_ptr = nullptr;
+#endif
+#if IRRIGATION_HAS_FLOW_METER
+FlowMeter *const g_flow_ptr = &g_flow;
+#else
+FlowMeter *const g_flow_ptr = nullptr;
+#endif
+IrrigationController g_controller(&g_zone_manager, &g_pump, g_valves_ptr, g_flow_ptr, &g_safety,
                                   &g_sys_config, g_zone_configs, g_zone_status, &g_sys_status);
 SystemContext g_ctx;
 SystemContextEx g_ctx_ex;
@@ -102,13 +112,21 @@ void setup() {
   if (!g_ads1115.begin()) {
     Serial.println(F("WARN: no ADS1115 detected on I2C"));
   }
+#if IRRIGATION_HAS_VALVES
   if (!g_pca9555.begin(PCA9555_ADDR_VALVES)) {
     Serial.println(F("WARN: PCA9555 valve expander not found"));
   }
+  g_valves.begin(BOARD_VALVE_COUNT, VALVE_ACTIVE_HIGH != 0);
+#else
+  Serial.println(F("INFO: valves disabled (no PCA9555 / solenoids)"));
+#endif
 
   g_pump.begin(PIN_PUMP_RELAY, PUMP_ACTIVE_HIGH != 0);
-  g_valves.begin(BOARD_VALVE_COUNT, VALVE_ACTIVE_HIGH != 0);
+#if IRRIGATION_HAS_FLOW_METER
   g_flow.begin();
+#else
+  Serial.println(F("INFO: flow meter disabled (time-based volume estimate)"));
+#endif
   g_zone_manager.begin();
 
   g_settings.begin();
@@ -120,6 +138,10 @@ void setup() {
   }
   clampZoneCount();
 
+#if !IRRIGATION_HAS_FLOW_METER
+  g_sys_config.dry_run_sec = 0;
+#endif
+
   g_safety.begin(g_sys_config.daily_limit_ml, g_sys_config.max_run_sec, g_sys_config.dry_run_sec);
   g_controller.begin();
   g_cli.begin(&g_ctx_ex);
@@ -129,6 +151,16 @@ void setup() {
 
   Serial.printf("Zones: %u (max %u valves, I2C expanders)\n", g_sys_config.zone_count,
                 BOARD_VALVE_COUNT);
+#if !IRRIGATION_HAS_FLOW_METER || !IRRIGATION_HAS_VALVES
+  Serial.print(F("Bring-up: "));
+#if !IRRIGATION_HAS_VALVES
+  Serial.print(F("no valves "));
+#endif
+#if !IRRIGATION_HAS_FLOW_METER
+  Serial.printf("no flow (~%u ml/s est) ", DEFAULT_PUMP_FLOW_ML_PER_SEC);
+#endif
+  Serial.println();
+#endif
   Serial.printf("WiFi: %s\n", g_sys_config.wifi_enabled ? "enabled" : "disabled");
   Serial.println(F("Ready. Type help."));
 }
@@ -148,7 +180,11 @@ void loop() {
     last_tick_ms = now;
     g_safety.setDailyLimit(g_sys_config.daily_limit_ml);
     g_safety.setMaxRunSec(g_sys_config.max_run_sec);
+#if IRRIGATION_HAS_FLOW_METER
     g_safety.setDryRunSec(g_sys_config.dry_run_sec);
+#else
+    g_safety.setDryRunSec(0);
+#endif
     g_controller.tick();
   }
 

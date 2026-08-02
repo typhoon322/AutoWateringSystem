@@ -119,14 +119,26 @@ void IrrigationController::startSession(uint8_t zone, uint16_t volume_ml, Irriga
 
 void IrrigationController::beginPumping() {
   pump_start_ms_ = millis();
-  flow_->resetSession();
+  if (flow_ != nullptr) {
+    flow_->resetSession();
+  }
   pump_->set(true);
   transitionTo(IrrigationState::Pumping);
   syncActuatorStatus();
 }
 
+uint16_t IrrigationController::sessionVolumeMl() const {
+  if (flow_ != nullptr) {
+    return flow_->volumeMl(config_->pulses_per_liter);
+  }
+  const uint32_t elapsed_ms = millis() - pump_start_ms_;
+  const uint32_t ml =
+      (elapsed_ms * static_cast<uint32_t>(DEFAULT_PUMP_FLOW_ML_PER_SEC)) / 1000U;
+  return ml > 65535U ? 65535U : static_cast<uint16_t>(ml);
+}
+
 void IrrigationController::finishSession(bool fault) {
-  const uint16_t vol = flow_->volumeMl(config_->pulses_per_liter);
+  const uint16_t vol = sessionVolumeMl();
   if (vol > 0) {
     safety_->addDailyMl(vol);
   }
@@ -215,19 +227,20 @@ void IrrigationController::stop() {
     finishSession(false);
   } else if (status_->state == IrrigationState::Valving) {
     abortSession();
-    transitionTo(IrrigationState::Idle);
   }
   safety_->unlock();
-  if (status_->state != IrrigationState::Done && status_->state != IrrigationState::Fault) {
-    transitionTo(IrrigationState::Idle);
-  }
+  status_->safety = SafetyState::Ok;
+  transitionTo(IrrigationState::Idle);
+  active_zone_ = 255;
+  status_->active_zone = -1;
   queue_head_ = queue_tail_;
   status_->queue_len = 0;
+  syncActuatorStatus();
 }
 
 void IrrigationController::emergencyStop() {
   if (pump_->isOn()) {
-    const uint16_t vol = flow_->volumeMl(config_->pulses_per_liter);
+    const uint16_t vol = sessionVolumeMl();
     if (vol > 0) {
       safety_->addDailyMl(vol);
     }
@@ -268,7 +281,7 @@ void IrrigationController::tick() {
   }
 
   if (status_->state == IrrigationState::Pumping) {
-    const uint16_t vol = flow_->volumeMl(config_->pulses_per_liter);
+    const uint16_t vol = sessionVolumeMl();
     status_->session_ml = vol;
 
     if (safety_->checkTimeout(pump_start_ms_)) {
@@ -276,7 +289,7 @@ void IrrigationController::tick() {
       finishSession(true);
       return;
     }
-    if (safety_->checkDryRun(pump_start_ms_, flow_->pulses())) {
+    if (flow_ != nullptr && safety_->checkDryRun(pump_start_ms_, flow_->pulses())) {
       safety_->lock(SafetyState::DryRun);
       finishSession(true);
       return;

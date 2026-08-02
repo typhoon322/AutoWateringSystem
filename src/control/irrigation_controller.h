@@ -43,6 +43,7 @@ class IrrigationController {
   void checkAutoTriggers();
   void processQueue();
   void syncActuatorStatus();
+  uint16_t sessionVolumeMl() const;
 
   ZoneManager *zones_;
   PumpDriver *pump_;
