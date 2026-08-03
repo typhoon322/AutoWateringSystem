@@ -39,8 +39,8 @@ void SettingsStore::applyDefaults(SystemContext &ctx) {
   ctx.config->dry_run_sec = DEFAULT_DRY_RUN_SEC;
   ctx.config->zone_count = ACTIVE_ZONES;
   ctx.config->wifi_enabled = RADIO_WIFI_DEFAULT_ENABLED != 0;
-  copyString(ctx.config->wifi_ssid, sizeof(ctx.config->wifi_ssid), "");
-  copyString(ctx.config->wifi_pass, sizeof(ctx.config->wifi_pass), "");
+  copyString(ctx.config->wifi_ssid, sizeof(ctx.config->wifi_ssid), WIFI_SSID);
+  copyString(ctx.config->wifi_pass, sizeof(ctx.config->wifi_pass), WIFI_PASS);
 
   for (uint8_t i = 0; i < MAX_ZONES; ++i) {
     char name[16];
@@ -49,7 +49,7 @@ void SettingsStore::applyDefaults(SystemContext &ctx) {
     ctx.zones[i].moisture_low = DEFAULT_MOISTURE_LOW;
     ctx.zones[i].moisture_high = DEFAULT_MOISTURE_HIGH;
     ctx.zones[i].volume_ml = DEFAULT_VOLUME_ML;
-    ctx.zones[i].auto_enabled = true;
+    ctx.zones[i].auto_enabled = false;
     ctx.zones[i].schedule_enabled = false;
     ctx.zones[i].schedule_hour = 8;
     ctx.zones[i].schedule_minute = 0;
@@ -82,8 +82,13 @@ bool SettingsStore::load(SystemContext &ctx) {
 
   String ssid = prefs.getString("wifiSSID", "");
   String pass = prefs.getString("wifiPass", "");
-  copyString(ctx.config->wifi_ssid, sizeof(ctx.config->wifi_ssid), ssid.c_str());
-  copyString(ctx.config->wifi_pass, sizeof(ctx.config->wifi_pass), pass.c_str());
+  if (ssid.length() == 0) {
+    copyString(ctx.config->wifi_ssid, sizeof(ctx.config->wifi_ssid), WIFI_SSID);
+    copyString(ctx.config->wifi_pass, sizeof(ctx.config->wifi_pass), WIFI_PASS);
+  } else {
+    copyString(ctx.config->wifi_ssid, sizeof(ctx.config->wifi_ssid), ssid.c_str());
+    copyString(ctx.config->wifi_pass, sizeof(ctx.config->wifi_pass), pass.c_str());
+  }
 
   for (uint8_t i = 0; i < ctx.config->zone_count; ++i) {
     String name = prefs.getString(zoneKey("zN", i), "");

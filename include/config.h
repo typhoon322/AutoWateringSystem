@@ -40,9 +40,13 @@
 #define STATUS_PRINT_INTERVAL_MS 1000
 #define CONTROLLER_TICK_MS 100
 #define LED_UPDATE_MS 500
+#define DISPLAY_INTERVAL_MS 1000
 
-// WiFi defaults (NVS overrides; WiFi off by default)
-#define RADIO_WIFI_DEFAULT_ENABLED 0
+// WiFi — 与 TempControl 相同；NVS 可覆盖 SSID/密码
+#define RADIO_WIFI_DEFAULT_ENABLED 1
+#define WIFI_SSID "OneMore"
+#define WIFI_PASS "onemore.2025"
+#define WIFI_HYBRID_MODE 1          // 1=AP+STA 同时开（混合模式）
 #define WIFI_AP_FALLBACK 1
 #define WIFI_AP_SSID "ESP32-IRRIGATION"
 #define WIFI_AP_PASS "irrigate2026"

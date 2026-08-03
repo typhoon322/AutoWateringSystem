@@ -13,7 +13,13 @@
 ### 1.1 克隆与打开
 
 ```bash
-cd /path/to/AutoIrrigationSystem/Untitled
+git clone git@github.com:typhoon322/AutoWateringSystem.git
+cd AutoWateringSystem   # 克隆后的目录名；本机若已重命名则 cd 到实际路径
+
+# 本机开发路径（原 Untitled 已重命名为 AutoIrrigationSystem）：
+# ~/ESP32/AutoIrrigationSystem/AutoIrrigationSystem
+cd ~/ESP32/AutoIrrigationSystem/AutoIrrigationSystem
+
 pio run -e esp32-c3-oled-test
 ```
 
@@ -125,7 +131,9 @@ flowchart TD
 | `DEFAULT_DRY_RUN_SEC` | 3 | 干转判定 s |
 | `SAMPLE_INTERVAL_MS` | 5000 | 湿度采样周期 |
 | `STATUS_PRINT_INTERVAL_MS` | 1000 | 状态行周期 |
-| `RADIO_WIFI_DEFAULT_ENABLED` | 0 | WiFi 默认关 |
+| `RADIO_WIFI_DEFAULT_ENABLED` | 1 | WiFi 默认开（混合 AP+STA） |
+| `WIFI_SSID` / `WIFI_PASS` | OneMore / onemore.2025 | 编译内置，NVS 可覆盖 |
+| `WIFI_HYBRID_MODE` | 1 | AP+STA 同时运行 |
 
 ### 3.2 NVS 键名（namespace: `irrigation`）
 
@@ -287,15 +295,39 @@ Body 为部分或全部配置字段，保存到 NVS。
 { "pulses": 120, "volume_ml": 45, "pulses_per_liter": 450 }
 ```
 
-### 5.10 POST /api/settings（完整）
+### 5.10 POST /api/flow/reset
+
+无 body，清零当前会话流量计脉冲（同调试用途）。
+
+### 5.11 POST /api/sample
+
+无 body，立即采样所有分区湿度（不等 5 s 周期）。
+
+### 5.12 GET /api/i2cscan
+
+```json
+{ "sda": 5, "scl": 6, "devices": [32, 60, 72] }
+```
+
+地址为十进制（0x20=32, 0x3C=60, 0x48=72）。
+
+### 5.13 POST /api/auto
+
+```json
+{ "zone": 0, "enabled": true }
+```
+
+或 `{ "all": true, "enabled": false }` — 开关阈值自动模式并保存 NVS。
+
+### 5.14 POST /api/settings（完整）
 
 Body 可含 `zones[]` 每分区：`name`, `moisture_low/high`, `volume_ml`, `auto_enabled`, `schedule_enabled`, `schedule_hour/minute`, `cal_dry/wet`。Web UI 通过此接口保存全部参数。
 
-### 5.11 POST /api/emergency-stop
+### 5.15 POST /api/emergency-stop
 
 无 body，立即停泵。
 
-### 5.6 GET/POST /api/wifi
+### 5.16 GET/POST /api/wifi
 
 GET 返回连接状态；POST 设置 `ssid`, `password`, `enabled`。
 

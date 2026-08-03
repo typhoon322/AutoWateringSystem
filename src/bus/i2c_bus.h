@@ -4,3 +4,4 @@
 
 void irrigationI2cBegin();
 bool irrigationI2cProbe(uint8_t addr7);
+void irrigationI2cScan();

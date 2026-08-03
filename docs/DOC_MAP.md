@@ -32,9 +32,10 @@
 | `src/storage/settings_store.*` | development | NVS 键名 |
 | `src/web/web_server.*` | development, user-manual | Web API、界面操作 |
 | `src/cli/serial_cli.*` | development, user-manual | CLI 命令 |
-| `src/ota/firmware_ota.*` | development | OTA 流程 |
+| `src/display/display_driver.*` | board-esp32-c3-042-oled, user-manual | OLED 状态页 |
 | `src/main.cpp` | development | 启动流程、采样周期 |
 | `platformio.ini` | development, README, user-manual | env 名称、依赖库 |
+| `docs/project-status.md` | — | 项目里程碑、上下文摘要（换目录/新 Chat 用） |
 | `docs/bom.md` | wiring, user-manual | 元器件变更 |
 | `docs/wiring.md` | user-manual, bom | 用户接线步骤 |
 
@@ -48,6 +49,7 @@
 | wiring | `docs/wiring.md` |
 | bom | `docs/bom.md` |
 | board-c3 | `docs/board-esp32-c3-042-oled.md` |
+| project-status | `docs/project-status.md` |
 | README | `README.md` |
 
 ## 变更类型速查
@@ -68,4 +70,5 @@
 | 2026-08-01 | 初版创建，v1.0 文档与代码基线 |
 | 2026-08-01 | v2.1：I2C 扩展板（10 盆）、C3 验证 / S3 量产、更新 BOM 与映射 |
 | 2026-08-01 | BOM v2.1：电磁阀两通常闭、流量计/止回阀/分水器；管长标定文档 |
+| 2026-08-02 | 新增 project-status.md（项目上下文摘要）；目录 Untitled→AutoIrrigationSystem |
 | 2026-08-01 | C3 0.42 OLED 板：引脚改为 I2C 5/6、流量计 GPIO7；新增 board-esp32-c3-042-oled.md |

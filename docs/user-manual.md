@@ -63,10 +63,15 @@ pio device monitor -b 115200
 AutoIrrigation v2.1
 Board: ESP32-C3-0.42-OLED
 Zones: 2 (max 10 valves, I2C expanders)
-WiFi: disabled
+WiFi: enabled
+AP: 192.168.4.1 (hybrid)
+WiFi connecting to OneMore...
+WiFi connected: 192.168.x.x
 ```
 
-### 4.2 WiFi 配网
+默认连接 **`OneMore`**（与 TempControl 相同），同时开启热点 **`ESP32-IRRIGATION`**（混合模式）。局域网 IP 与 AP `192.168.4.1` 均可访问 Web。
+
+### 4.2 WiFi 配网（可选覆盖默认）
 
 **方式 A — 串口 CLI**
 
@@ -90,7 +95,13 @@ save
 - 查看实时湿度、泵/阀状态
 - **编辑并保存** 每盆阈值、体积、定时、校准、名称
 - 调整系统参数（盆数、ppl、日限额等）
-- **测试**：队列浇水、急停、泵/阀单控、湿度标定、读流量计
+- **测试控制台**（等效串口 CLI，无需串口）：
+  - 队列浇水、急停、停止/清故障
+  - 泵 ON/OFF、开阀/阀全关
+  - 标定干/湿、立即采样湿度
+  - 读流量、流量清零、I2C 扫描
+  - 单区/全部 自动模式开关
+  - 「仅应用盆数」快速改激活分区数
 - 配置 WiFi
 
 ---

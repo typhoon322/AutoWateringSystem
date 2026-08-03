@@ -8,6 +8,7 @@
 #include "control/irrigation_controller.h"
 #include "control/zone_manager.h"
 #include "safety/safety_monitor.h"
+#include "bus/i2c_bus.h"
 #include "sensor/flow_meter.h"
 #include "storage/settings_store.h"
 
@@ -40,6 +41,7 @@ void SerialCli::printHelp() const {
   Serial.println(F("  ppl <n>           - pulses per liter"));
   Serial.println(F("  wifi ssid|pass|on|off"));
   Serial.println(F("  save              - save to NVS"));
+  Serial.println(F("  i2cscan           - scan I2C bus"));
 }
 
 void SerialCli::printStatus() const {
@@ -266,6 +268,8 @@ void SerialCli::dispatch(const char *line) {
     } else {
       Serial.println(F("Save failed."));
     }
+  } else if (strcmp(cmd, "i2cscan") == 0) {
+    irrigationI2cScan();
   } else {
     Serial.println(F("Unknown command. Type help."));
   }

@@ -52,6 +52,14 @@ bool ZoneManager::needsWater(uint8_t zone_id) const {
   if (!status_[zone_id].sensor_valid) {
     return false;
   }
+  // Require both dry/wet calibration before auto (avoid cal-dry-only → 0% → spurious pump)
+  if (configs_[zone_id].cal_dry == DEFAULT_CAL_DRY ||
+      configs_[zone_id].cal_wet == DEFAULT_CAL_WET) {
+    return false;
+  }
+  if (configs_[zone_id].cal_dry == configs_[zone_id].cal_wet) {
+    return false;
+  }
   return status_[zone_id].moisture_pct < configs_[zone_id].moisture_low;
 }
 

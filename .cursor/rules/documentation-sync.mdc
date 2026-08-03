@@ -10,7 +10,7 @@ alwaysApply: false
 
 ## 强制检查项
 
-1. **引脚变更**（`include/boards/board_c3.h`）
+1. **引脚变更**（`include/boards/board_c3_oled.h`、`board_s3.h`）
    - 更新 `docs/wiring.md` 引脚表
    - 更新 `docs/system-design.md` §3.3
    - 更新 `docs/development.md` 配置说明

@@ -2,6 +2,7 @@
 
 #include <Wire.h>
 
+#include "bus/i2c_bus.h"
 #include "config.h"
 
 namespace {
@@ -22,11 +23,18 @@ bool Pca9555::writeReg8(uint8_t reg, uint8_t value) {
 
 bool Pca9555::begin(uint8_t addr7) {
   addr7_ = addr7;
-  if (!writeReg8(kRegConfig0, 0x00) || !writeReg8(kRegConfig1, 0x00)) {
-    return false;
+  for (uint8_t attempt = 0; attempt < 5; ++attempt) {
+    if (!irrigationI2cProbe(addr7_)) {
+      delay(20);
+      continue;
+    }
+    if (writeReg8(kRegConfig0, 0x00) && writeReg8(kRegConfig1, 0x00)) {
+      output_ = 0;
+      return writeOutput(0);
+    }
+    delay(20);
   }
-  output_ = 0;
-  return writeOutput(0);
+  return false;
 }
 
 bool Pca9555::writeOutput(uint16_t value) {

@@ -11,7 +11,7 @@ alwaysApply: true
 
 任务完成前必须：
 
-1. **验证**：运行 `~/.platformio/penv/bin/pio run -e esp32-c3-irrigation`，确认编译 SUCCESS
+1. **验证**：运行 `~/.platformio/penv/bin/pio run -e esp32-c3-oled-test`，确认编译 SUCCESS
 2. **文档**：若改了固件/硬件，按 `documentation-sync.mdc` 同步 docs
 3. **提交**：用户未禁止时，将相关变更加入 commit（不写含密钥的文件）
 4. **推送**：`git push origin HEAD` 到远端

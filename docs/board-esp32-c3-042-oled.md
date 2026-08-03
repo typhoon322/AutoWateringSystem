@@ -21,8 +21,12 @@
 | 屏幕 | 0.42" OLED，SSD1306，I2C **0x3C** |
 | USB | Type-C，板载 USB 串口 |
 | 按键 | BOOT（GPIO9）、RESET |
-| LED | GPIO8，**低电平亮** |
+| LED | 红色 GPIO8、蓝色 GPIO10，**低电平亮**（固件仅用 GPIO8 作状态灯） |
 | RGB（部分批次） | WS2812 @ GPIO2（本固件未使用） |
+
+> **丝印 vs 板载 OLED**  
+> 排针上可能标 `GPIO8/SDA`、`GPIO9/SCL`，那是外接 I2C 用途。  
+> **板载 0.42" OLED 在 PCB 内部已接到 GPIO5（SDA）+ GPIO6（SCL）**，与原理图绿框「屏幕接线 SCL→6、SDA→5」一致；扩展子板也必须接 **5/6**，不能接 8/9。
 
 ## 与本项目引脚对应
 
@@ -97,17 +101,34 @@ AutoIrrigation v2.1
 Board: ESP32-C3-0.42-OLED
 ```
 
-## OLED 显示（可选，v2.2+）
+## OLED 显示
 
-板载屏为 **72×40 可视** 的 SSD1306（128×64 缓冲）。若后续加本地 UI，需：
+板载 **0.42" SSD1306**（I2C 0x3C，物理分辨率 **72×40**）。固件使用官方示例同款 **U8g2** 驱动（`U8G2_SSD1306_72X40_ER_F_HW_I2C`），无需 128×64 缓冲区偏移。
 
-```cpp
-Wire.begin(5, 6);
-// U8g2 示例：U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, 6, 5);
-// 0.42 寸常需 xOffset≈30, yOffset≈12
-```
+上电后屏幕显示：
 
-当前 v2.1 固件 **未驱动 OLED**，以 Web + 串口为主；屏不影响灌溉功能。
+| 行 | 内容 |
+|----|------|
+| 1 | 状态（IDLE / PUMPING / …） |
+| 2 | Z0:xx% Z1:xx% |
+| 3 | P:ON/OFF V:ON/OFF（泵 / 阀） |
+| 4 | 今日流量 ml、AP 指示 |
+
+串口应出现 `OLED: U8g2 72x40 initialized`。若 `WARN: OLED init failed`，确认 I2C 为 GPIO5/6、地址 0x3C。
+
+## 裸板测试（无扩展子板 / 泵 / 阀 / 传感器）
+
+仅 USB 供电、不接任何外设时，行为正常如下：
+
+| 现象 | 是否正常 |
+|------|----------|
+| OLED 显示 `AutoIrrigation` / `IDLE` / `Z0:0% Z1:0%` | 正常 |
+| 串口 `OLED: U8g2 72x40 initialized` | 正常 |
+| 串口 `WARN: no ADS1115` / `PCA9555 not found` | **正常**（扩展板未接） |
+| 湿度始终 0%、泵阀 OFF | **正常**（无传感器与执行器） |
+| AP `192.168.4.1`（WiFi 默认关闭时的 fallback） | 正常 |
+
+下一步接扩展子板时：SDA/SCL 接 **GPIO5 / GPIO6**，3.3 V 与 GND 共地即可。
 
 ## 接线示意
 

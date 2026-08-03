@@ -29,8 +29,11 @@ GitHub: [typhoon322/AutoWateringSystem](https://github.com/typhoon322/AutoWateri
 | [使用说明书](docs/user-manual.md) | 组装、配网、日常操作、故障排查 |
 | [C3 0.42 OLED 板说明](docs/board-esp32-c3-042-oled.md) | 01Space 小板引脚、官方资料、接线 |
 | [文档-代码映射](docs/DOC_MAP.md) | 变更时需同步更新的文档对照表 |
+| [项目状态 / 上下文摘要](docs/project-status.md) | 里程碑、裸板验证结果、待办、新 Chat 接续 |
 
 ## 快速开始
+
+> **本机路径**：`~/ESP32/AutoIrrigationSystem/AutoIrrigationSystem`（原 `Untitled` 已重命名）。在 Cursor / VS Code 中请打开**含 `platformio.ini` 的这一层**目录。
 
 ### 环境
 

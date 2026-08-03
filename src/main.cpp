@@ -3,6 +3,7 @@
 #include "actuator/pca9555.h"
 #include "actuator/pump_driver.h"
 #include "actuator/valve_driver.h"
+#include "bus/i2c_bus.h"
 #include "cli/serial_cli.h"
 #include "config.h"
 #include "control/irrigation_controller.h"
@@ -14,7 +15,12 @@
 #include "storage/settings_store.h"
 #include "web/web_server.h"
 
+#if BOARD_HAS_OLED
+#include "display/display_driver.h"
+#endif
+
 #include <time.h>
+#include <WiFi.h>
 
 MoistureSensor g_moisture_sensors[MAX_ZONES] = {
     MoistureSensor(0), MoistureSensor(1), MoistureSensor(2), MoistureSensor(3),
@@ -29,6 +35,9 @@ SafetyMonitor g_safety;
 SettingsStore g_settings;
 SerialCli g_cli;
 WebServerUi g_web;
+#if BOARD_HAS_OLED
+DisplayDriver g_display;
+#endif
 
 SystemConfig g_sys_config;
 ZoneConfig g_zone_configs[MAX_ZONES];
@@ -55,6 +64,9 @@ uint32_t last_sample_ms = 0;
 uint32_t last_status_ms = 0;
 uint32_t last_tick_ms = 0;
 uint32_t last_led_ms = 0;
+#if BOARD_HAS_OLED
+uint32_t last_display_ms = 0;
+#endif
 
 void clampZoneCount() {
   if (g_sys_config.zone_count < MIN_ZONE_COUNT) {
@@ -109,16 +121,33 @@ void setup() {
   Serial.printf("AutoIrrigation v%s\n", FIRMWARE_VERSION);
   Serial.printf("Board: %s\n", BOARD_NAME);
 
+  irrigationI2cBegin();
+
   if (!g_ads1115.begin()) {
     Serial.println(F("WARN: no ADS1115 detected on I2C"));
+  } else {
+    Serial.println(F("I2C: ADS1115 OK"));
   }
 #if IRRIGATION_HAS_VALVES
   if (!g_pca9555.begin(PCA9555_ADDR_VALVES)) {
     Serial.println(F("WARN: PCA9555 valve expander not found"));
+  } else {
+    Serial.println(F("I2C: PCA9555 OK"));
   }
   g_valves.begin(BOARD_VALVE_COUNT, VALVE_ACTIVE_HIGH != 0);
 #else
   Serial.println(F("INFO: valves disabled (no PCA9555 / solenoids)"));
+#endif
+
+#if BOARD_HAS_OLED
+  delay(50);
+  if (g_display.begin()) {
+    Serial.println(F("OLED: U8g2 72x40 initialized"));
+    g_display.showSplash();
+  } else {
+    Serial.println(F("WARN: OLED init failed"));
+    irrigationI2cScan();
+  }
 #endif
 
   g_pump.begin(PIN_PUMP_RELAY, PUMP_ACTIVE_HIGH != 0);
@@ -192,6 +221,16 @@ void loop() {
     last_status_ms = now;
     g_cli.printStatus();
   }
+
+#if BOARD_HAS_OLED
+  if (now - last_display_ms >= DISPLAY_INTERVAL_MS) {
+    last_display_ms = now;
+    const bool ap_on =
+        WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA;
+    g_display.showStatus(g_sys_status, g_zone_status, g_sys_config.zone_count, &g_controller,
+                         ap_on);
+  }
+#endif
 
   updateStatusLed();
 }

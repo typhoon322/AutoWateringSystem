@@ -9,14 +9,17 @@
 #include "config.h"
 #include "control/irrigation_controller.h"
 #include "control/zone_manager.h"
+#include "safety/safety_monitor.h"
 #include "sensor/flow_meter.h"
 #include "storage/settings_store.h"
+#include "bus/i2c_bus.h"
 
 extern SettingsStore g_settings;
 extern PumpDriver g_pump;
 extern ValveDriver g_valves;
 extern FlowMeter g_flow;
 extern ZoneManager g_zone_manager;
+extern SafetyMonitor g_safety;
 
 namespace {
 WebServer server(80);
@@ -56,6 +59,9 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 .fault-banner{border-color:var(--warn)!important;background:#2a1515}
 .fault-banner h2{color:var(--warn)}
 .fault-banner p{font-size:.85rem;margin:6px 0 10px;color:#ffb4b4}
+.hint{font-size:.75rem;color:var(--muted);margin:-4px 0 8px}
+.section{margin-top:6px;padding-top:8px;border-top:1px solid #30363d}
+.section-title{font-size:.8rem;color:var(--muted);margin-bottom:6px}
 </style>
 </head>
 <body>
@@ -72,6 +78,50 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 </div>
 
 <div class="card">
+<h2>测试控制台</h2>
+<p class="hint">等效串口 CLI：泵/阀/浇水/标定/流量/I2C，多数操作即时生效</p>
+<div class="grid2">
+<div><label>当前测试分区</label><select id="testZone"></select></div>
+<div><label>手动体积 (ml)</label><input type="number" id="testMl" value="100" min="10" max="2000"></div>
+</div>
+<div class="section"><div class="section-title">浇水 / 安全</div>
+<div class="btn-row btn-row3">
+<button class="btn-go" onclick="doIrrigate()">队列浇水</button>
+<button class="btn-warn" onclick="doEstop()">急停</button>
+<button class="btn-ghost" onclick="doStop()">停止/清故障</button>
+</div></div>
+<div class="section"><div class="section-title">泵 / 阀（调试）</div>
+<div class="btn-row btn-row3">
+<button class="btn-ghost" onclick="doPump(1)">泵 ON</button>
+<button class="btn-ghost" onclick="doPump(0)">泵 OFF</button>
+<button class="btn-ghost" onclick="doValve(-1)">阀全关</button>
+</div>
+<div class="btn-row">
+<button class="btn-ghost" onclick="doValveSel()">开选中阀</button>
+<button class="btn-ghost" onclick="doAuto(1)">选中区 自动ON</button>
+<button class="btn-ghost" onclick="doAuto(0)">选中区 自动OFF</button>
+</div>
+<div class="btn-row">
+<button class="btn-ghost" onclick="doAutoAll(1)">全部 自动ON</button>
+<button class="btn-ghost" onclick="doAutoAll(0)">全部 自动OFF</button>
+</div></div>
+<div class="section"><div class="section-title">湿度 / 流量 / I2C</div>
+<div class="btn-row btn-row3">
+<button class="btn-ghost" onclick="doCal('dry')">标定 干</button>
+<button class="btn-ghost" onclick="doCal('wet')">标定 湿</button>
+<button class="btn-ghost" onclick="doSample()">立即采样</button>
+</div>
+<div class="btn-row btn-row3">
+<button class="btn-ghost" onclick="doFlow()">读流量</button>
+<button class="btn-ghost" onclick="doFlowReset()">流量清零</button>
+<button class="btn-ghost" onclick="doI2cScan()">I2C 扫描</button>
+</div>
+<div class="row" id="flowInfo"><span class="label">流量计</span><span>—</span></div>
+<div class="row" id="i2cInfo"><span class="label">I2C 设备</span><span>点击扫描</span></div>
+</div>
+</div>
+
+<div class="card">
 <h2>系统参数</h2>
 <div class="grid2">
 <div><label>激活盆数 (1–10)</label><input type="number" id="zoneCount" min="1" max="10"></div>
@@ -80,34 +130,10 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 <div><label>日限额 (ml)</label><input type="number" id="dailyLim"></div>
 <div><label>干转判定 (s)</label><input type="number" id="dryRun"></div>
 </div>
+<button class="btn-ghost" style="width:100%;margin-top:8px" onclick="applyZoneCount()">仅应用盆数（立即生效）</button>
 </div>
 
 <div class="card"><h2>分区配置</h2><div id="zoneForms"></div></div>
-
-<div class="card">
-<h2>测试与标定</h2>
-<div class="grid2">
-<div><label>测试分区</label><select id="testZone"></select></div>
-<div><label>手动体积 (ml)</label><input type="number" id="testMl" value="100" min="10" max="2000"></div>
-</div>
-<div class="btn-row btn-row3">
-<button class="btn-go" onclick="doIrrigate()">队列浇水</button>
-<button class="btn-warn" onclick="doEstop()">急停</button>
-<button class="btn-ghost" onclick="doStop()">停止/复位</button>
-</div>
-<div class="btn-row btn-row3">
-<button class="btn-ghost" onclick="doPump(1)">泵 ON</button>
-<button class="btn-ghost" onclick="doPump(0)">泵 OFF</button>
-<button class="btn-ghost" onclick="doValve(-1)">阀全关</button>
-</div>
-<div class="btn-row">
-<button class="btn-ghost" onclick="doValveSel()">开阀</button>
-<button class="btn-ghost" onclick="doCal('dry')">标定 干</button>
-<button class="btn-ghost" onclick="doCal('wet')">标定 湿</button>
-<button class="btn-ghost" onclick="doFlow()">读流量</button>
-</div>
-<div class="row" id="flowInfo"><span class="label">流量计</span><span>—</span></div>
-</div>
 
 <div class="card">
 <h2>WiFi</h2>
@@ -135,13 +161,14 @@ async function refreshStatus(){
   }
   document.getElementById('statusBody').innerHTML=
     '<div class="row"><span class="label">板型</span><span>'+esc(d.board)+' v'+esc(d.firmware||'?')+'</span></div>'+
-    '<div class="row"><span class="label">状态</span><span>'+d.state+' / '+d.safety+'</span></div>'+
+    '<div class="row"><span class="label">状态</span><span>'+d.state+' / '+d.safety+(d.safety_locked?' (锁定)':'')+'</span></div>'+
     '<div class="row"><span class="label">泵</span><span>'+(d.pump?'ON':'OFF')+'</span></div>'+
     '<div class="row"><span class="label">阀</span><span>'+(d.valve_on?'Z'+d.active_valve:'OFF')+'</span></div>'+
     '<div class="row"><span class="label">队列</span><span>'+d.queue+'</span></div>'+
+    '<div class="row"><span class="label">本次会话</span><span>'+(d.session_ml!=null?d.session_ml:0)+' ml</span></div>'+
     '<div class="row"><span class="label">今日流量</span><span>'+d.daily_ml+' ml</span></div>'+
     '<div class="row"><span class="label">WiFi</span><span>'+(d.wifi&&d.wifi.connected?d.wifi.ip:'未连接')+'</span></div>'+
-    (d.zones||[]).map(z=>'<div class="row"><span class="label">'+esc(z.name)+'</span><span>'+z.moisture_pct+'% (ADC '+z.moisture_adc+')</span></div>').join('');
+    (d.zones||[]).map(z=>'<div class="row"><span class="label">'+esc(z.name)+'</span><span>'+z.moisture_pct+'% (ADC '+z.moisture_adc+')'+(z.auto_enabled?' ·自动':'')+'</span></div>').join('');
   document.getElementById('liveHint').textContent='实时刷新 · '+new Date().toLocaleTimeString();
 }
 function buildZoneForms(zc,zones){
@@ -235,7 +262,35 @@ async function doCal(point){
 }
 async function doFlow(){
   const f=await api('/api/flow');
-  document.getElementById('flowInfo').innerHTML='<span class="label">流量计</span><span>'+f.pulses+' 脉冲 · '+f.volume_ml+' ml</span>';
+  document.getElementById('flowInfo').innerHTML='<span class="label">流量计</span><span>'+f.pulses+' 脉冲 · '+f.volume_ml+' ml (ppl '+f.pulses_per_liter+')</span>';
+}
+async function doFlowReset(){
+  await api('/api/flow/reset',{method:'POST'});
+  msg('流量计数已清零');doFlow();
+}
+async function doSample(){
+  await api('/api/sample',{method:'POST'});
+  msg('已采样湿度');refreshStatus();
+}
+async function doI2cScan(){
+  const r=await api('/api/i2cscan');
+  const txt=(r.devices||[]).map(a=>'0x'+Number(a).toString(16).toUpperCase()).join(' ')||'无设备';
+  document.getElementById('i2cInfo').innerHTML='<span class="label">I2C 设备</span><span>'+txt+'</span>';
+  msg('I2C: '+txt);
+}
+async function doAuto(on){
+  const zone=+document.getElementById('testZone').value;
+  await api('/api/auto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone,enabled:!!on})});
+  msg('Z'+zone+' 自动'+(on?'开启':'关闭'));loadAll();refreshStatus();
+}
+async function doAutoAll(on){
+  await api('/api/auto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true,enabled:!!on})});
+  msg('全部自动'+(on?'开启':'关闭'));loadAll();refreshStatus();
+}
+async function applyZoneCount(){
+  const n=Math.min(+document.getElementById('zoneCount').value||1,MAXZ);
+  await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone_count:n})});
+  msg('盆数='+n+' 已应用');loadAll();refreshStatus();
 }
 loadAll();refreshStatus();setInterval(refreshStatus,2000);
 </script>
@@ -267,37 +322,117 @@ void WebServerUi::begin(SystemContextEx *ctx) {
   setupRoutes();
 }
 
+void WebServerUi::resolveWifiCredentials(char *ssid, size_t ssid_len, char *pass,
+                                         size_t pass_len) const {
+  if (ssid_len == 0 || pass_len == 0) {
+    return;
+  }
+  const char *src_ssid = WIFI_SSID;
+  const char *src_pass = WIFI_PASS;
+  if (ctx_ != nullptr && ctx_->config != nullptr && ctx_->config->wifi_ssid[0] != '\0') {
+    src_ssid = ctx_->config->wifi_ssid;
+    src_pass = ctx_->config->wifi_pass;
+  }
+  strncpy(ssid, src_ssid, ssid_len - 1);
+  strncpy(pass, src_pass, pass_len - 1);
+  ssid[ssid_len - 1] = '\0';
+  pass[pass_len - 1] = '\0';
+}
+
 void WebServerUi::startWiFi() {
-  if (ctx_ == nullptr || !ctx_->config->wifi_enabled) {
+  if (ctx_ == nullptr) {
+    return;
+  }
+
+  if (!ctx_->config->wifi_enabled) {
     if (WIFI_AP_FALLBACK) {
       WiFi.mode(WIFI_AP);
       WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS);
       Serial.printf("AP: %s\n", WiFi.softAPIP().toString().c_str());
     }
+    wifi_connect_pending_ = false;
     wifi_started_ = true;
     server.begin();
     return;
   }
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ctx_->config->wifi_ssid, ctx_->config->wifi_pass);
-  Serial.printf("WiFi connecting to %s...\n", ctx_->config->wifi_ssid);
+  char ssid[33];
+  char pass[65];
+  resolveWifiCredentials(ssid, sizeof(ssid), pass, sizeof(pass));
 
-  const uint32_t start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
-    delay(200);
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("WiFi connected: %s\n", WiFi.localIP().toString().c_str());
-  } else if (WIFI_AP_FALLBACK) {
-    WiFi.mode(WIFI_AP_STA);
+#if WIFI_HYBRID_MODE
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.setSleep(false);
+  if (WIFI_AP_FALLBACK) {
     WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS);
-    Serial.printf("AP fallback: %s\n", WiFi.softAPIP().toString().c_str());
+    Serial.printf("AP: %s (hybrid)\n", WiFi.softAPIP().toString().c_str());
+  }
+#else
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+#endif
+
+  if (ssid[0] != '\0') {
+    WiFi.begin(ssid, pass);
+    wifi_connect_pending_ = true;
+    wifi_connect_start_ms_ = millis();
+    Serial.printf("WiFi connecting to %s...\n", ssid);
+  } else if (WIFI_AP_FALLBACK && WiFi.getMode() != WIFI_AP) {
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS);
+    Serial.printf("AP: %s\n", WiFi.softAPIP().toString().c_str());
   }
 
   wifi_started_ = true;
   server.begin();
+}
+
+void WebServerUi::restartWiFi() {
+  wifi_started_ = false;
+  wifi_connect_pending_ = false;
+  WiFi.disconnect(true);
+  startWiFi();
+}
+
+void WebServerUi::tickWiFi() {
+  if (!ctx_->config->wifi_enabled) {
+    return;
+  }
+
+  if (wifi_connect_pending_) {
+    if (WiFi.status() == WL_CONNECTED) {
+      wifi_connect_pending_ = false;
+      Serial.printf("WiFi connected: %s\n", WiFi.localIP().toString().c_str());
+      return;
+    }
+    if (millis() - wifi_connect_start_ms_ > 15000) {
+      wifi_connect_pending_ = false;
+      Serial.println(F("WiFi STA timeout (AP still available)."));
+    }
+    return;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
+  }
+
+  const uint32_t now = millis();
+  if (now - last_wifi_attempt_ms_ < WIFI_RECONNECT_INTERVAL_MS) {
+    return;
+  }
+  last_wifi_attempt_ms_ = now;
+
+  char ssid[33];
+  char pass[65];
+  resolveWifiCredentials(ssid, sizeof(ssid), pass, sizeof(pass));
+  if (ssid[0] == '\0') {
+    return;
+  }
+
+  Serial.println(F("WiFi lost — reconnecting..."));
+  WiFi.begin(ssid, pass);
+  wifi_connect_pending_ = true;
+  wifi_connect_start_ms_ = now;
 }
 
 void WebServerUi::handleRoot() { server.send_P(200, "text/html", kDashboardHtml); }
@@ -342,14 +477,31 @@ void WebServerUi::handleStatus() {
   doc["state"] = ctx_->controller ? ctx_->controller->stateText() : "IDLE";
   doc["safety"] = safetyDetail(ctx_->status->safety);
   doc["fault"] = ctx_->status->state == IrrigationState::Fault;
+  doc["safety_locked"] = g_safety.isLocked();
   doc["daily_ml"] = ctx_->status->daily_ml;
   doc["active_zone"] = ctx_->status->active_zone;
   doc["queue"] = ctx_->status->queue_len;
   doc["session_ml"] = ctx_->status->session_ml;
 
   JsonObject wifi = doc["wifi"].to<JsonObject>();
+  wifi["enabled"] = ctx_->config->wifi_enabled;
   wifi["connected"] = WiFi.status() == WL_CONNECTED;
-  wifi["ip"] = WiFi.localIP().toString();
+  wifi["ssid"] = ctx_->config->wifi_ssid[0] != '\0' ? ctx_->config->wifi_ssid : WIFI_SSID;
+  if (ctx_->config->wifi_enabled && WiFi.getMode() == WIFI_AP_STA) {
+    wifi["mode"] = "AP_STA";
+    wifi["ap_ip"] = WiFi.softAPIP().toString();
+    wifi["ip"] = WiFi.localIP().toString();
+  } else if (WiFi.getMode() == WIFI_AP) {
+    wifi["mode"] = "AP";
+    wifi["ap_ip"] = WiFi.softAPIP().toString();
+    wifi["ip"] = WiFi.softAPIP().toString();
+  } else if (WiFi.status() == WL_CONNECTED) {
+    wifi["mode"] = "STA";
+    wifi["ip"] = WiFi.localIP().toString();
+  } else {
+    wifi["mode"] = ctx_->config->wifi_enabled ? "STA" : "OFF";
+    wifi["ip"] = "";
+  }
   wifi["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
 
   JsonArray zones = doc["zones"].to<JsonArray>();
@@ -608,13 +760,79 @@ void WebServerUi::handleFlow() {
   server.send(200, "application/json", out);
 }
 
+void WebServerUi::handleFlowReset() {
+  g_flow.resetSession();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebServerUi::handleI2cScan() {
+  JsonDocument doc;
+  JsonArray devices = doc["devices"].to<JsonArray>();
+  doc["sda"] = PIN_I2C_SDA;
+  doc["scl"] = PIN_I2C_SCL;
+  for (uint8_t addr = 1; addr < 127; ++addr) {
+    if (irrigationI2cProbe(addr)) {
+      devices.add(addr);
+    }
+  }
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
+void WebServerUi::handleSample() {
+  g_zone_manager.sampleAll();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebServerUi::handleAuto() {
+  if (ctx_ == nullptr || !server.hasArg("plain") || ctx_->zones == nullptr) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+
+  const bool enabled = doc["enabled"] | false;
+  if (doc["all"] | false) {
+    for (uint8_t i = 0; i < ctx_->config->zone_count; ++i) {
+      ctx_->zones[i].auto_enabled = enabled;
+    }
+  } else {
+    const uint8_t zone = doc["zone"] | 0;
+    if (zone >= ctx_->config->zone_count) {
+      server.send(400, "application/json", "{\"ok\":false}");
+      return;
+    }
+    ctx_->zones[zone].auto_enabled = enabled;
+  }
+
+  SystemContext sc = {ctx_->config, ctx_->zones, ctx_->zone_status, ctx_->status};
+  g_settings.save(sc);
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 void WebServerUi::handleWifiGet() {
   JsonDocument doc;
-  doc["connected"] = WiFi.status() == WL_CONNECTED;
-  doc["ip"] = WiFi.localIP().toString();
   if (ctx_ != nullptr) {
     doc["enabled"] = ctx_->config->wifi_enabled;
-    doc["ssid"] = ctx_->config->wifi_ssid;
+    doc["ssid"] = ctx_->config->wifi_ssid[0] != '\0' ? ctx_->config->wifi_ssid : WIFI_SSID;
+  }
+  doc["connected"] = WiFi.status() == WL_CONNECTED;
+  doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+  if (WiFi.getMode() == WIFI_AP_STA) {
+    doc["mode"] = "AP_STA";
+    doc["ap_ip"] = WiFi.softAPIP().toString();
+  } else if (WiFi.getMode() == WIFI_AP) {
+    doc["mode"] = "AP";
+  } else if (WiFi.status() == WL_CONNECTED) {
+    doc["mode"] = "STA";
+  } else {
+    doc["mode"] = "OFF";
   }
   String out;
   serializeJson(doc, out);
@@ -645,6 +863,7 @@ void WebServerUi::handleWifiPost() {
 
   SystemContext sc = {ctx_->config, ctx_->zones, ctx_->zone_status, ctx_->status};
   g_settings.save(sc);
+  restartWiFi();
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -660,6 +879,10 @@ void WebServerUi::setupRoutes() {
   server.on("/api/test/valve", HTTP_POST, [this]() { handleTestValve(); });
   server.on("/api/cal", HTTP_POST, [this]() { handleCal(); });
   server.on("/api/flow", HTTP_GET, [this]() { handleFlow(); });
+  server.on("/api/flow/reset", HTTP_POST, [this]() { handleFlowReset(); });
+  server.on("/api/i2cscan", HTTP_GET, [this]() { handleI2cScan(); });
+  server.on("/api/sample", HTTP_POST, [this]() { handleSample(); });
+  server.on("/api/auto", HTTP_POST, [this]() { handleAuto(); });
   server.on("/api/wifi", HTTP_GET, [this]() { handleWifiGet(); });
   server.on("/api/wifi", HTTP_POST, [this]() { handleWifiPost(); });
 }
@@ -670,11 +893,7 @@ void WebServerUi::loop() {
   }
   server.handleClient();
 
-  if (ctx_ != nullptr && ctx_->config->wifi_enabled && WiFi.status() != WL_CONNECTED) {
-    const uint32_t now = millis();
-    if (now - last_wifi_attempt_ms_ >= WIFI_RECONNECT_INTERVAL_MS) {
-      last_wifi_attempt_ms_ = now;
-      WiFi.reconnect();
-    }
+  if (ctx_ != nullptr && ctx_->config->wifi_enabled) {
+    tickWiFi();
   }
 }
