@@ -285,6 +285,12 @@ async function doIrrigate(){
 async function doEstop(){await api('/api/emergency-stop',{method:'POST'});msg('急停');refreshStatus()}
 async function doStop(){await api('/api/stop',{method:'POST'});msg('故障已清除，可继续操作');refreshStatus()}
 async function doPump(on){await api('/api/test/pump',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:!!on})});refreshStatus()}
+function updatePumpTimer(){
+  if(pumpOnSince){
+    const t=document.getElementById('pumpTimer');
+    if(t)t.textContent=((Date.now()-pumpOnSince)/1000).toFixed(1)+' s（本次页面会话）';
+  }
+}
 async function doValve(z){await api('/api/test/valve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone:z})});refreshStatus()}
 function doValveSel(){doValve(+document.getElementById('testZone').value)}
 async function doCal(point){
@@ -306,6 +312,19 @@ async function doFlowReset(){
   await api('/api/flow/reset',{method:'POST'});
   msg('流量计数已清零');fetchFlow();
 }
+function calcPpl(){
+  const v=+document.getElementById('calVol').value;
+  const p=+document.getElementById('calPulses').value;
+  document.getElementById('calPpl').textContent=(v>0&&p>0)?Math.round(p*1000/v):'—';
+}
+async function applyPpl(){
+  const v=+document.getElementById('calVol').value;
+  const p=+document.getElementById('calPulses').value;
+  if(!(v>0&&p>0)){msg('请先填写量杯体积和脉冲数');return}
+  const ppl=Math.round(p*1000/v);
+  const r=await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pulses_per_liter:ppl})});
+  if(r&&r.ok){msg('ppl='+ppl+' 已保存');loadAll()}else msg('保存失败');
+}
 async function doSample(){
   await api('/api/sample',{method:'POST'});
   msg('已采样湿度');refreshStatus();
@@ -325,10 +344,42 @@ async function doAutoAll(on){
   await api('/api/auto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true,enabled:!!on})});
   msg('全部自动'+(on?'开启':'关闭'));loadAll();refreshStatus();
 }
+let secChk={};
+try{secChk=JSON.parse(localStorage.getItem('irr_sec')||'{}')}catch(e){}
+function loadSecChk(){
+  for(const k in secChk){
+    const el=document.getElementById(k);
+    if(el)el.checked=!!secChk[k];
+  }
+}
+function saveSecChk(){
+  ['secDry','secTimeout','secDaily'].forEach(id=>{secChk[id]=!!document.getElementById(id).checked});
+  try{localStorage.setItem('irr_sec',JSON.stringify(secChk))}catch(e){}
+}
 async function applyZoneCount(){
   const n=Math.min(+document.getElementById('zoneCount').value||1,MAXZ);
   await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone_count:n})});
   msg('盆数='+n+' 已应用');loadAll();refreshStatus();
+}
+const STEPS=['I2C 扫描','泵测试','阀测试','流量计','干转保护','标定'];
+let stepsDone={};
+try{stepsDone=JSON.parse(localStorage.getItem('irr_steps')||'{}')}catch(e){}
+function renderSteps(){
+  const el=document.getElementById('stepList');
+  if(!el)return;
+  let h='';
+  let curIdx=STEPS.findIndex((s,i)=>!stepsDone[i]);
+  for(let i=0;i<STEPS.length;i++){
+    const done=!!stepsDone[i];
+    h+='<div class="chk'+(i===curIdx?' step-current':'')+'"><input type="checkbox" '+(done?'checked':'')+' onchange="toggleStep('+i+')"><span>'+(i+1)+'. '+STEPS[i]+(done?' ✓':'')+'</span></div>';
+  }
+  el.innerHTML=h;
+}
+function toggleStep(i){
+  const cb=document.querySelectorAll('#stepList input')[i];
+  stepsDone[i]=!!cb.checked;
+  try{localStorage.setItem('irr_steps',JSON.stringify(stepsDone))}catch(e){}
+  renderSteps();
 }
 loadAll();refreshStatus();fetchFlow();setTimeout(doI2cScan,500);
 loadSecChk();renderSteps();
