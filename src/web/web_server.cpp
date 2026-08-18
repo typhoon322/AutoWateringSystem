@@ -483,6 +483,16 @@ void WebServerUi::handleStatus() {
   doc["queue"] = ctx_->status->queue_len;
   doc["session_ml"] = ctx_->status->session_ml;
 
+  JsonObject features = doc["features"].to<JsonObject>();
+  features["valves"] = IRRIGATION_HAS_VALVES != 0;
+  features["flow_meter"] = IRRIGATION_HAS_FLOW_METER != 0;
+  features["max_zones"] = MAX_ZONES;
+#if defined(BOARD_VALVE_COUNT)
+  features["max_valves"] = BOARD_VALVE_COUNT;
+#else
+  features["max_valves"] = 0;
+#endif
+
   JsonObject wifi = doc["wifi"].to<JsonObject>();
   wifi["enabled"] = ctx_->config->wifi_enabled;
   wifi["connected"] = WiFi.status() == WL_CONNECTED;
