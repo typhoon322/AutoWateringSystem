@@ -60,6 +60,7 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 .fault-banner h2{color:var(--warn)}
 .fault-banner p{font-size:.85rem;margin:6px 0 10px;color:#ffb4b4}
 .hint{font-size:.75rem;color:var(--muted);margin:-4px 0 8px}
+.step-current{border:1px solid var(--accent);border-radius:6px;padding:4px 6px;background:rgba(0,204,136,.08)}
 .section{margin-top:6px;padding-top:8px;border-top:1px solid #30363d}
 .section-title{font-size:.8rem;color:var(--muted);margin-bottom:6px}
 </style>
@@ -70,6 +71,8 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 <div class="live" id="liveHint">刷新中…</div>
 
 <div class="card" id="statusCard"><h2>实时状态</h2><div id="statusBody">加载中…</div></div>
+
+<div class="card"><h2>联调步骤引导</h2><p class="hint">按顺序逐项验证，完成勾选（本地保存）</p><div id="stepList"></div></div>
 
 <div class="card fault-banner" id="faultBanner" style="display:none">
 <h2>故障锁定</h2>
@@ -96,6 +99,7 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 <button class="btn-ghost" onclick="doPump(0)">泵 OFF</button>
 <button class="btn-ghost" onclick="doValve(-1)">阀全关</button>
 </div>
+<div class="row" id="pumpTimerRow" style="display:none"><span class="label">泵运行</span><span id="pumpTimer">—</span></div>
 <div class="btn-row">
 <button class="btn-ghost" onclick="doValveSel()">开选中阀</button>
 <button class="btn-ghost" onclick="doAuto(1)">选中区 自动ON</button>
@@ -111,13 +115,27 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 <button class="btn-ghost" onclick="doCal('wet')">标定 湿</button>
 <button class="btn-ghost" onclick="doSample()">立即采样</button>
 </div>
-<div class="btn-row btn-row3">
-<button class="btn-ghost" onclick="doFlow()">读流量</button>
+<div class="btn-row">
 <button class="btn-ghost" onclick="doFlowReset()">流量清零</button>
-<button class="btn-ghost" onclick="doI2cScan()">I2C 扫描</button>
+<button class="btn-ghost" onclick="doI2cScan()">I2C 重扫</button>
 </div>
-<div class="row" id="flowInfo"><span class="label">流量计</span><span>—</span></div>
-<div class="row" id="i2cInfo"><span class="label">I2C 设备</span><span>点击扫描</span></div>
+<div class="row" id="flowInfo"><span class="label">流量计</span><span>自动刷新…</span></div>
+<div class="row" id="i2cInfo"><span class="label">I2C 设备</span><span>加载中…</span></div>
+<div class="section"><div class="section-title">ppl 标定计算器</div>
+<div class="grid2">
+<div><label>量杯体积 (ml)</label><input type="number" id="calVol" value="500" min="10" oninput="calcPpl()"></div>
+<div><label>当前脉冲</label><input type="number" id="calPulses" min="0" oninput="calcPpl()"></div>
+</div>
+<div class="row"><span class="label">计算 ppl</span><span id="calPpl">—</span></div>
+<button class="btn-ghost" style="width:100%" onclick="applyPpl()">写入并保存 ppl</button>
+<p class="hint">先"流量清零"→ 浇已知体积 → 脉冲自动填入 → 调整量杯体积 → 写入</p>
+</div>
+<div class="section"><div class="section-title">安全功能测试（须走"队列浇水"）</div>
+<p class="hint">直接"泵 ON"绕过控制器，测不出保护；以下测试必须用"队列浇水"触发，完成后可勾选</p>
+<div class="chk"><input type="checkbox" id="secDry" onchange="saveSecChk()"><span><b>干转保护</b>：无水时队列浇水 50ml → 约 3s 后 FAULT/DRY_RUN、泵自停 → 点"停止/清故障"解锁</span></div>
+<div class="chk"><input type="checkbox" id="secTimeout" onchange="saveSecChk()"><span><b>超时保护</b>：系统参数 max_run 临时设 5s 保存 → 队列浇水 → 5s 后 FAULT/TIMEOUT → 恢复 max_run</span></div>
+<div class="chk"><input type="checkbox" id="secDaily" onchange="saveSecChk()"><span><b>日限额</b>：系统参数日限额临时设 100ml 保存 → 连续浇水 → 超限后状态 DAILY_LIMIT → 恢复限额</span></div>
+</div>
 </div>
 </div>
 
