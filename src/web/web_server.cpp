@@ -166,28 +166,43 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 <script>
 const MAXZ=10;
 let settings={};
+let pumpOnSince=null;
 async function api(p,o){const r=await fetch(p,o);return r.json()}
 function msg(t){document.getElementById('msg').textContent=t}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
 async function refreshStatus(){
-  const d=await api('/api/status');
+  let d=null;
+  try{d=await api('/api/status')}catch(e){}
+  const live=document.getElementById('liveHint');
+  if(!d){
+    document.getElementById('statusBody').innerHTML='<div class="row"><span class="label">连接</span><span style="color:var(--warn)">中断，自动重试中…</span></div>';
+    live.textContent='连接中断 · '+new Date().toLocaleTimeString();
+    return;
+  }
+  const f=d.features||{};
   const fault=d.fault||d.state==='FAULT';
   document.getElementById('faultBanner').style.display=fault?'block':'none';
   if(fault){
     document.getElementById('faultText').textContent=
       '原因: '+(d.safety||'?')+' · 排除问题后点击下方按钮解除锁定（等同串口 stop）';
   }
+  if(d.pump&&pumpOnSince===null)pumpOnSince=Date.now();
+  if(!d.pump)pumpOnSince=null;
+  const ptr=document.getElementById('pumpTimerRow');
+  if(ptr)ptr.style.display=d.pump?'flex':'none';
   document.getElementById('statusBody').innerHTML=
     '<div class="row"><span class="label">板型</span><span>'+esc(d.board)+' v'+esc(d.firmware||'?')+'</span></div>'+
+    '<div class="row"><span class="label">编译特性</span><span>阀 '+(f.valves?'✓':'✗')+' · 流量计 '+(f.flow_meter?'✓':'✗')+' · 最大阀数 '+(f.max_valves!=null?f.max_valves:'?')+'</span></div>'+
     '<div class="row"><span class="label">状态</span><span>'+d.state+' / '+d.safety+(d.safety_locked?' (锁定)':'')+'</span></div>'+
     '<div class="row"><span class="label">泵</span><span>'+(d.pump?'ON':'OFF')+'</span></div>'+
     '<div class="row"><span class="label">阀</span><span>'+(d.valve_on?'Z'+d.active_valve:'OFF')+'</span></div>'+
     '<div class="row"><span class="label">队列</span><span>'+d.queue+'</span></div>'+
     '<div class="row"><span class="label">本次会话</span><span>'+(d.session_ml!=null?d.session_ml:0)+' ml</span></div>'+
     '<div class="row"><span class="label">今日流量</span><span>'+d.daily_ml+' ml</span></div>'+
+    '<div class="row"><span class="label">安全参数</span><span>'+(settings&&settings.max_run_sec!=null?'max_run '+settings.max_run_sec+'s / daily '+settings.daily_limit_ml+'ml / dry_run '+settings.dry_run_sec+'s':'—')+'</span></div>'+
     '<div class="row"><span class="label">WiFi</span><span>'+(d.wifi&&d.wifi.connected?d.wifi.ip:'未连接')+'</span></div>'+
-    (d.zones||[]).map(z=>'<div class="row"><span class="label">'+esc(z.name)+'</span><span>'+z.moisture_pct+'% (ADC '+z.moisture_adc+')'+(z.auto_enabled?' ·自动':'')+'</span></div>').join('');
-  document.getElementById('liveHint').textContent='实时刷新 · '+new Date().toLocaleTimeString();
+    (d.zones||[]).map(z=>'<div class="row"><span class="label">'+esc(z.name)+'</span><span>'+z.moisture_pct+'% (ADC '+z.moisture_adc+')'+(z.auto_enabled?' ·自动':'')+(z.sensor_valid?' ·<span style="color:var(--accent)">有效</span>':' ·<span style="color:var(--warn)">无效</span>')+'</span></div>').join('');
+  live.textContent='实时刷新 · '+new Date().toLocaleTimeString();
 }
 function buildZoneForms(zc,zones){
   const n=Math.min(zc,MAXZ);
@@ -278,13 +293,18 @@ async function doCal(point){
   msg(r.ok?'标定 '+point+' Z'+zone+' = '+r.adc:'标定失败');
   loadAll();
 }
-async function doFlow(){
-  const f=await api('/api/flow');
+async function fetchFlow(){
+  let f=null;
+  try{f=await api('/api/flow')}catch(e){}
+  if(!f)return;
   document.getElementById('flowInfo').innerHTML='<span class="label">流量计</span><span>'+f.pulses+' 脉冲 · '+f.volume_ml+' ml (ppl '+f.pulses_per_liter+')</span>';
+  const cp=document.getElementById('calPulses');
+  if(cp&&document.activeElement!==cp)cp.value=f.pulses;
+  calcPpl();
 }
 async function doFlowReset(){
   await api('/api/flow/reset',{method:'POST'});
-  msg('流量计数已清零');doFlow();
+  msg('流量计数已清零');fetchFlow();
 }
 async function doSample(){
   await api('/api/sample',{method:'POST'});
@@ -310,7 +330,11 @@ async function applyZoneCount(){
   await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone_count:n})});
   msg('盆数='+n+' 已应用');loadAll();refreshStatus();
 }
-loadAll();refreshStatus();setInterval(refreshStatus,2000);
+loadAll();refreshStatus();fetchFlow();setTimeout(doI2cScan,500);
+loadSecChk();renderSteps();
+setInterval(refreshStatus,2000);
+setInterval(fetchFlow,2000);
+setInterval(updatePumpTimer,500);
 </script>
 </body>
 </html>)rawliteral";
