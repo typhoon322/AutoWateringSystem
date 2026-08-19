@@ -28,9 +28,11 @@ bool Pca9555::begin(uint8_t addr7) {
       delay(20);
       continue;
     }
-    if (writeReg8(kRegConfig0, 0x00) && writeReg8(kRegConfig1, 0x00)) {
+    // 初始化为全高阻（输入模式），避免启动瞬间输出 0V 使低电平触发模块误吸合。
+    if (writeReg8(kRegConfig0, 0xFF) && writeReg8(kRegConfig1, 0xFF)) {
+      config_ = 0xFFFF;
       output_ = 0;
-      return writeOutput(0);
+      return true;
     }
     delay(20);
   }
@@ -41,6 +43,11 @@ bool Pca9555::writeOutput(uint16_t value) {
   output_ = value;
   return writeReg8(kRegOutput0, static_cast<uint8_t>(value & 0xFF)) &&
          writeReg8(kRegOutput1, static_cast<uint8_t>((value >> 8) & 0xFF));
+}
+
+bool Pca9555::writeConfig() {
+  return writeReg8(kRegConfig0, static_cast<uint8_t>(config_ & 0xFF)) &&
+         writeReg8(kRegConfig1, static_cast<uint8_t>((config_ >> 8) & 0xFF));
 }
 
 bool Pca9555::setBit(uint8_t bit, bool high) {
@@ -54,4 +61,21 @@ bool Pca9555::setBit(uint8_t bit, bool high) {
     next &= static_cast<uint16_t>(~(1U << bit));
   }
   return writeOutput(next);
+}
+
+bool Pca9555::setHighZ(uint8_t bit) {
+  if (bit > 15) {
+    return false;
+  }
+  config_ |= static_cast<uint16_t>(1U << bit);
+  return writeConfig();
+}
+
+bool Pca9555::setDriveLow(uint8_t bit) {
+  if (bit > 15) {
+    return false;
+  }
+  config_ &= static_cast<uint16_t>(~(1U << bit));  // 输出模式
+  output_ &= static_cast<uint16_t>(~(1U << bit));  // 输出 0V
+  return writeConfig() && writeOutput(output_);
 }

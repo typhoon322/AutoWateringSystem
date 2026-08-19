@@ -33,8 +33,11 @@ cd ~/ESP32/AutoIrrigationSystem/AutoIrrigationSystem
 | C3 0.42 OLED 裸板（仅 USB） | ✅ 已烧录验证 |
 | 板载 OLED 显示 | ✅ U8g2 72×40 |
 | WiFi 混合模式 AP+STA | ✅ 已连 `OneMore`，AP 同时开 |
-| Web UI | ✅ `192.168.4.1` 或局域网 IP |
-| I2C 扩展板 / 传感器 / 泵阀 | ⏳ 未接（串口 WARN 正常） |
+| Web UI | ✅ `192.168.4.1` 或局域网 IP（2026-08-18 已增强联调测试页） |
+| S3 量产板串口/Web 联调 | ✅ 固件跑通（Serial=UART0、WiFi 连 `ChinaUnicom-8DFA-2.4`、Web 192.168.0.112） |
+| PCA9555 阀扩展板 | ✅ I2C 在线（0x20）；驱动逻辑已改"高阻关断+0V 吸合" |
+| 泵/阀继电器 | ⏳ 待换 **3.3V 低电平触发**模块（5V/12V 线圈模块与 3.3V MCU 不兼容，见 [bom.md 红线](bom.md)） |
+| ADS1115 湿度板 / 流量计 | ⏳ 待接线 |
 
 ### C3 板关键引脚（`include/boards/board_c3_oled.h`）
 
@@ -117,6 +120,7 @@ OLED 四行：状态 / Z0·Z1 湿度 / 泵阀 / 日流量·AP 指示。
 4. [ ] 标定 `pulses_per_liter`、各 `volume_ml`（管长不等时逐区标）
 5. [ ] 扩展至 2+ 区，验证队列灌溉
 6. [ ] 量产板 ESP32-S3 同扩展板冒烟测试
+7. [ ] **整合 PCB 设计**（量产整合板：S3 模块 + 3×ADS1115 + PCA9555 + 泵/阀驱动 + 电源一体，KiCad 出图打样；输入见联调定型的极性/电平/地址决策）
 
 ## 8. 文档索引
 

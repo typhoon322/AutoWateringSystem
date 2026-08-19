@@ -73,3 +73,4 @@
 | 2026-08-02 | 新增 project-status.md（项目上下文摘要）；目录 Untitled→AutoIrrigationSystem |
 | 2026-08-01 | C3 0.42 OLED 板：引脚改为 I2C 5/6、流量计 GPIO7；新增 board-esp32-c3-042-oled.md |
 | 2026-08-18 | Web dashboard 联调测试增强：features 字段、状态展示、泵计时/ppl/安全测试/步骤引导 |
+| 2026-08-18 | 继电器选型红线：3.3V MCU 不可直驱 5V/12V 线圈光耦模块；固件改"高阻关断+0V 吸合"（pca9555/valve/pump 驱动） |
