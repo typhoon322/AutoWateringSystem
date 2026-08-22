@@ -420,8 +420,8 @@ function buildZoneForms(zc,zones){
   for(let i=0;i<n;i++){
     const z=zones[i]||{};
     document.getElementById('zWO'+i).checked=!!z.window_override;
-    document.getElementById('zWS'+i).value=String(z.win_sh||17).padStart(2,'0')+':'+String(z.win_sm||0).padStart(2,'0');
-    document.getElementById('zWE'+i).value=String(z.win_eh||21).padStart(2,'0')+':'+String(z.win_em||0).padStart(2,'0');
+    document.getElementById('zWS'+i).value=String(z.win_sh!=null?z.win_sh:17).padStart(2,'0')+':'+String(z.win_sm!=null?z.win_sm:0).padStart(2,'0');
+    document.getElementById('zWE'+i).value=String(z.win_eh!=null?z.win_eh:21).padStart(2,'0')+':'+String(z.win_em!=null?z.win_em:0).padStart(2,'0');
   }
   const sel=document.getElementById('testZone');
   sel.innerHTML='';
@@ -436,8 +436,8 @@ async function loadAll(){
   document.getElementById('dailyLim').value=s.daily_limit_ml||2000;
   document.getElementById('dryRun').value=s.dry_run_sec||3;
   document.getElementById('aWinEn').checked=!!s.auto_window_enabled;
-  document.getElementById('aWinS').value=String(s.auto_win_sh||17).padStart(2,'0')+':'+String(s.auto_win_sm||0).padStart(2,'0');
-  document.getElementById('aWinE').value=String(s.auto_win_eh||21).padStart(2,'0')+':'+String(s.auto_win_em||0).padStart(2,'0');
+  document.getElementById('aWinS').value=String(s.auto_win_sh!=null?s.auto_win_sh:17).padStart(2,'0')+':'+String(s.auto_win_sm!=null?s.auto_win_sm:0).padStart(2,'0');
+  document.getElementById('aWinE').value=String(s.auto_win_eh!=null?s.auto_win_eh:21).padStart(2,'0')+':'+String(s.auto_win_em!=null?s.auto_win_em:0).padStart(2,'0');
   document.getElementById('wifiSsid').value=w.ssid||'';
   document.getElementById('wifiPass').value='';
   document.getElementById('wifiEn').checked=!!w.enabled;
@@ -453,10 +453,10 @@ function collectSettings(){
     daily_limit_ml:+document.getElementById('dailyLim').value,
     dry_run_sec:+document.getElementById('dryRun').value,
     auto_window_enabled:document.getElementById('aWinEn').checked,
-    auto_win_sh:+document.getElementById('aWinS').value.split(':')[0]||17,
-    auto_win_sm:+document.getElementById('aWinS').value.split(':')[1]||0,
-    auto_win_eh:+document.getElementById('aWinE').value.split(':')[0]||21,
-    auto_win_em:+document.getElementById('aWinE').value.split(':')[1]||0,
+    auto_win_sh:document.getElementById('aWinS').value.split(':')[0]===''?17:+document.getElementById('aWinS').value.split(':')[0],
+    auto_win_sm:document.getElementById('aWinS').value.split(':')[1]===''?0:+document.getElementById('aWinS').value.split(':')[1],
+    auto_win_eh:document.getElementById('aWinE').value.split(':')[0]===''?21:+document.getElementById('aWinE').value.split(':')[0],
+    auto_win_em:document.getElementById('aWinE').value.split(':')[1]===''?0:+document.getElementById('aWinE').value.split(':')[1],
     zones:[]
   };
   for(let i=0;i<n;i++){
@@ -473,10 +473,10 @@ function collectSettings(){
       auto_enabled:document.getElementById('zAuto'+i).checked,
       schedule_enabled:document.getElementById('zSchE'+i).checked,
       window_override:document.getElementById('zWO'+i).checked,
-      win_sh:+document.getElementById('zWS'+i).value.split(':')[0]||17,
-      win_sm:+document.getElementById('zWS'+i).value.split(':')[1]||0,
-      win_eh:+document.getElementById('zWE'+i).value.split(':')[0]||21,
-      win_em:+document.getElementById('zWE'+i).value.split(':')[1]||0
+      win_sh:document.getElementById('zWS'+i).value.split(':')[0]===''?17:+document.getElementById('zWS'+i).value.split(':')[0],
+      win_sm:document.getElementById('zWS'+i).value.split(':')[1]===''?0:+document.getElementById('zWS'+i).value.split(':')[1],
+      win_eh:document.getElementById('zWE'+i).value.split(':')[0]===''?21:+document.getElementById('zWE'+i).value.split(':')[0],
+      win_em:document.getElementById('zWE'+i).value.split(':')[1]===''?0:+document.getElementById('zWE'+i).value.split(':')[1]
     });
   }
   return body;
