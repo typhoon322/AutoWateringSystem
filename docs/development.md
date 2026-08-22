@@ -222,6 +222,13 @@ Dashboard（`/`）内嵌联调测试能力（2026-08-18 增强）：
 - I2C 设备列表与流量计读数自动刷新（2s），无需手动点击
 - 测试控制台含：泵运行计时、ppl 标定计算器（量杯体积+脉冲 → 写入）、安全功能测试引导（干转/超时/日限额，须走"队列浇水"流程触发）、联调步骤引导（6 步勾选，localStorage 保存）
 
+### 双页面结构（2026-08-22）
+
+- `/` 家庭首页：湿度卡片、一键浇水、自动模式开关、故障恢复、最近浇水记录、自动时段展示（家人用）
+- `/dev` 调试页：测试控制台/参数/标定/I2C/流量/步骤引导（开发联调用）
+- `GET /api/history`：最近 50 条浇水记录（NVS 持久化，重启保留）`{records:[{ts,zone,volume_ml,trigger}]}`，trigger: manual|threshold|schedule
+- 浇水时间窗口：`auto_window_enabled` + `auto_win_sh/sm/eh/em`（全局），每盆 `window_override` + `win_sh/sm/eh/em`（覆盖）；窗口外自动（阈值）不触发，手动/定时不受限；支持跨午夜
+
 ### 5.1 GET /api/status
 
 ```json
