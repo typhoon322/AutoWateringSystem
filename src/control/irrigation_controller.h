@@ -44,6 +44,7 @@ class IrrigationController {
   void processQueue();
   void syncActuatorStatus();
   uint16_t sessionVolumeMl() const;
+  bool inAutoWindow(uint8_t zone) const;
 
   ZoneManager *zones_;
   PumpDriver *pump_;

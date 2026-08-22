@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "config.h"
+#include "storage/irrigation_history.h"
 
 IrrigationController::IrrigationController(ZoneManager *zones, PumpDriver *pump, ValveDriver *valves,
                                            FlowMeter *flow, SafetyMonitor *safety,
@@ -137,10 +138,46 @@ uint16_t IrrigationController::sessionVolumeMl() const {
   return ml > 65535U ? 65535U : static_cast<uint16_t>(ml);
 }
 
+bool IrrigationController::inAutoWindow(uint8_t zone) const {
+  if (!config_->auto_window_enabled) {
+    return true;  // 窗口总开关关闭 = 不限时
+  }
+  uint8_t sh = config_->auto_win_sh, sm = config_->auto_win_sm;
+  uint8_t eh = config_->auto_win_eh, em = config_->auto_win_em;
+  if (zone < config_->zone_count && zone_configs_[zone].window_override) {
+    sh = zone_configs_[zone].win_sh;
+    sm = zone_configs_[zone].win_sm;
+    eh = zone_configs_[zone].win_eh;
+    em = zone_configs_[zone].win_em;
+  }
+  const int start = sh * 60 + sm;
+  const int end = eh * 60 + em;
+  if (start == end) {
+    return true;  // 起止相同 = 全天
+  }
+  time_t now;
+  time(&now);
+  struct tm ti;
+  localtime_r(&now, &ti);
+  const int cur = ti.tm_hour * 60 + ti.tm_min;
+  if (start < end) {
+    return cur >= start && cur < end;
+  }
+  return cur >= start || cur < end;  // 跨午夜（如 22:00-02:00）
+}
+
 void IrrigationController::finishSession(bool fault) {
   const uint16_t vol = sessionVolumeMl();
   if (vol > 0) {
     safety_->addDailyMl(vol);
+  }
+  if (!fault && vol > 0) {
+    IrrigationRecord rec;
+    rec.ts = static_cast<uint32_t>(time(nullptr));
+    rec.zone = active_zone_ < MAX_ZONES ? active_zone_ : 0;
+    rec.volume_ml = vol;
+    rec.trigger = static_cast<uint8_t>(status_->trigger);
+    g_history.add(rec);
   }
   pump_->set(false);
   if (valves_ != nullptr) {
@@ -216,7 +253,7 @@ void IrrigationController::checkAutoTriggers() {
       }
     }
 
-    if (zc.auto_enabled && zones_->needsWater(z)) {
+    if (zc.auto_enabled && zones_->needsWater(z) && inAutoWindow(z)) {
       enqueue(z, zc.volume_ml, IrrigateTrigger::Threshold);
     }
   }
