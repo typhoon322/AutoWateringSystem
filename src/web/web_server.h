@@ -17,6 +17,7 @@ class WebServerUi {
   void tickWiFi();
   void resolveWifiCredentials(char *ssid, size_t ssid_len, char *pass, size_t pass_len) const;
   void handleRoot();
+  void handleDev();
   void handleStatus();
   void handleSettingsGet();
   void handleSettingsPost();
@@ -33,6 +34,7 @@ class WebServerUi {
   void handleAuto();
   void handleWifiGet();
   void handleWifiPost();
+  void handleHistory();
   void applyZoneCount(uint8_t n);
 
   SystemContextEx *ctx_ = nullptr;

@@ -12,6 +12,7 @@
 #include "safety/safety_monitor.h"
 #include "sensor/flow_meter.h"
 #include "storage/settings_store.h"
+#include "storage/irrigation_history.h"
 #include "bus/i2c_bus.h"
 
 extern SettingsStore g_settings;
@@ -24,12 +25,186 @@ extern SafetyMonitor g_safety;
 namespace {
 WebServer server(80);
 
-const char kDashboardHtml[] PROGMEM = R"rawliteral(<!DOCTYPE html>
+const char kHomeHtml[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AutoIrrigation</title>
+<style>
+:root{--bg:#0f1419;--card:#1a2332;--accent:#00cc88;--warn:#ff5555;--text:#e6edf3;--muted:#8b949e;--blue:#388bfd}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);padding:12px;line-height:1.5}
+.wrap{max-width:520px;margin:0 auto}
+h1{font-size:1.3rem;color:var(--accent);margin-bottom:4px}
+.card{background:var(--card);border-radius:14px;padding:16px;margin-bottom:12px;border:1px solid #30363d}
+.summary{display:flex;gap:10px;flex-wrap:wrap;font-size:.9rem;color:var(--muted);margin-top:6px}
+.summary b{color:var(--text)}
+.zone{border:1px solid #30363d;border-radius:12px;padding:14px;margin-bottom:10px;background:#0d1117}
+.zone-head{display:flex;justify-content:space-between;align-items:center}
+.zone-name{font-weight:700;font-size:1.05rem}
+.zone-pct{font-size:1.6rem;font-weight:800}
+.status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+.dry{color:#ff7b72}.dry .status-dot{background:#ff7b72}
+.ok{color:var(--accent)}.ok .status-dot{background:var(--accent)}
+.wet{color:#79c0ff}.wet .status-dot{background:#79c0ff}
+.dead{color:var(--muted)}.dead .status-dot{background:var(--muted)}
+.zone-actions{display:none;margin-top:12px;border-top:1px solid #30363d;padding-top:10px}
+.zone-actions.open{display:block}
+.row{display:flex;justify-content:space-between;align-items:center;margin:6px 0;gap:8px}
+label{font-size:.85rem;color:var(--muted)}
+input,select{padding:8px;border:1px solid #30363d;border-radius:8px;background:#0d1117;color:var(--text);font-size:1rem;width:100%}
+button{padding:12px;border:none;border-radius:10px;font-weight:700;cursor:pointer;font-size:1rem}
+.btn-go{background:var(--accent);color:#0f1419;width:100%}
+.btn-ghost{background:#21262d;color:var(--text);border:1px solid #30363d}
+.btn-warn{background:var(--warn);color:#fff;width:100%}
+.switch{position:relative;width:52px;height:28px;background:#30363d;border-radius:14px;border:none;cursor:pointer;transition:background .2s}
+.switch.on{background:var(--accent)}
+.switch::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;background:#fff;border-radius:50%;transition:left .2s}
+.switch.on::after{left:27px}
+.rec{display:flex;justify-content:space-between;font-size:.85rem;padding:6px 0;border-bottom:1px solid #21262d;color:var(--text)}
+.rec:last-child{border-bottom:none}
+.rec .t{color:var(--muted)}
+.fault{border-color:var(--warn)!important;background:#2a1515}
+.fault h3{color:var(--warn)}
+.hint{font-size:.8rem;color:var(--muted);margin:8px 0}
+.foot{text-align:center;font-size:.8rem;color:var(--muted);padding:8px 0 20px}
+.foot a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>🌱 AutoIrrigation</h1>
+<div class="card">
+<div style="font-size:1.05rem;font-weight:700">今日已浇 <b id="dailyMl">—</b> ml</div>
+<div class="summary">
+<span>泵: <b id="pumpSt">OFF</b></span>
+<span>正在浇: <b id="zoneSt">无</b></span>
+<span>队列: <b id="queueSt">0</b></span>
+<span id="winSt"></span>
+</div>
+</div>
+
+<div class="card fault" id="faultCard" style="display:none">
+<h3>⚠️ 系统故障</h3>
+<p class="hint" id="faultText">—</p>
+<button class="btn-warn" onclick="doRecover()">恢复运行</button>
+</div>
+
+<div class="card" id="zonesCard"><div id="zonesList">加载中…</div></div>
+
+<div class="card">
+<div style="font-weight:700;margin-bottom:8px">最近浇水</div>
+<div id="recList">加载中…</div>
+</div>
+
+<div class="foot"><a href="/dev">调试页</a></div>
+</div>
+<script>
+const MAXZ=10;
+let settings={};
+async function api(p,o){const r=await fetch(p,o);return r.json()}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function pctColor(z){
+  if(!z.sensor_valid)return 'dead';
+  if(z.moisture_pct < z.moisture_low)return 'dry';
+  if(z.moisture_pct > z.moisture_high)return 'wet';
+  return 'ok';
+}
+function pctLabel(c){return c==='dry'?'偏干':c==='wet'?'偏湿':c==='ok'?'正常':'未接'}
+function fmtWin(){
+  const s=settings;
+  if(!s||s.auto_window_enabled==null)return '';
+  if(!s.auto_window_enabled)return '自动不限时';
+  const p=(h,m)=>String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+  return '自动时段 '+p(s.auto_win_sh,s.auto_win_sm)+' - '+p(s.auto_win_eh,s.auto_win_em);
+}
+function renderZones(zones){
+  const el=document.getElementById('zonesList');
+  let h='';
+  for(let i=0;i<zones.length;i++){
+    const z=zones[i]||{};
+    const c=pctColor(z);
+    const pct=z.moisture_pct!=null?z.moisture_pct:'--';
+    h+='<div class="zone"><div class="zone-head" onclick="toggleZone('+i+')">'+
+      '<div><span class="zone-name">🪴 '+esc(z.name||('Zone'+i))+'</span><br><span class="'+c+'"><span class="status-dot"></span>'+pctLabel(c)+'</span></div>'+
+      '<div class="zone-pct '+c+'">'+pct+'%</div></div>'+
+      '<div class="zone-actions" id="za'+i+'">'+
+      '<div class="row"><span>自动浇水</span><button class="switch'+(z.auto_enabled?' on':'')+'" onclick="toggleAuto('+i+')"></button></div>'+
+      '<div class="row"><label>水量 ml</label><input type="number" id="vol'+i+'" value="'+(z.volume_ml||100)+'" min="10"></div>'+
+      '<button class="btn-go" id="btnW'+i+'" onclick="doWater('+i+')">浇水</button></div></div>';
+  }
+  el.innerHTML=h||'（未配置盆数）';
+}
+function toggleZone(i){
+  const a=document.getElementById('za'+i);
+  if(a)a.classList.toggle('open');
+}
+async function toggleAuto(i){
+  const on=!settings.zones[i].auto_enabled;
+  await api('/api/auto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone:i,enabled:on})});
+  loadAll();
+}
+async function doWater(i){
+  const b=document.getElementById('btnW'+i);
+  const vol=+document.getElementById('vol'+i).value;
+  if(b)b.disabled=true;
+  await api('/api/irrigate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zone:i,volume_ml:vol})});
+  if(b){b.disabled=false;b.textContent='浇水'}
+  setTimeout(refreshStatus,300);
+}
+async function doRecover(){await api('/api/stop',{method:'POST'});refreshStatus()}
+async function refreshStatus(){
+  let d=null;
+  try{d=await api('/api/status')}catch(e){}
+  const live=document.getElementById('dailyMl');
+  if(!d){live.textContent='连接中断';return}
+  document.getElementById('dailyMl').textContent=d.daily_ml;
+  document.getElementById('pumpSt').textContent=d.pump?'ON':'OFF';
+  document.getElementById('zoneSt').textContent=(d.valve_on&&d.active_valve>=0)?'盆'+(d.active_valve+1):'无';
+  document.getElementById('queueSt').textContent=d.queue;
+  const fault=d.fault||d.safety_locked||d.state==='FAULT';
+  document.getElementById('faultCard').style.display=fault?'block':'none';
+  if(fault)document.getElementById('faultText').textContent='原因: '+(d.safety||'?');
+  const zones=(d.zones||[]);
+  for(let i=0;i<zones.length;i++){
+    const btn=document.getElementById('btnW'+i);
+    if(btn){btn.disabled=d.pump;btn.textContent=d.pump?'浇水中…':'浇水'}
+  }
+}
+async function renderHistory(){
+  let h=null;
+  try{h=await api('/api/history')}catch(e){}
+  const el=document.getElementById('recList');
+  if(!h||!h.records||!h.records.length){el.textContent='暂无记录';return}
+  const names=settings.zones||[];
+  const trig={manual:'手动',threshold:'自动',schedule:'定时'};
+  el.innerHTML=h.records.slice(0,10).map(r=>{
+    const n=names[r.zone]?names[r.zone].name:('盆'+(r.zone+1));
+    const t=r.ts?new Date(r.ts*1000).toLocaleString('zh-CN',{hour12:false}):'--';
+    return '<div class="rec"><span>'+(trig[r.trigger]||r.trigger)+' · '+esc(n)+' · '+r.volume_ml+'ml</span><span class="t">'+t+'</span></div>';
+  }).join('');
+}
+async function loadAll(){
+  try{settings=await api('/api/settings')}catch(e){}
+  document.getElementById('winSt').textContent=fmtWin();
+  let st=null;
+  try{st=await api('/api/status')}catch(e){}
+  if(st&&st.zones)renderZones(st.zones);
+  renderHistory();
+}
+loadAll();refreshStatus();setInterval(refreshStatus,2000);
+setInterval(function(){renderHistory();},15000);
+</script>
+</body>
+</html>)rawliteral";
+
+const char kDevHtml[] PROGMEM = R"rawliteral(<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AutoIrrigation · 调试</title>
 <style>
 :root{--bg:#0f1419;--card:#1a2332;--accent:#00cc88;--warn:#ff5555;--text:#e6edf3;--muted:#8b949e;--blue:#388bfd}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -67,7 +242,8 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 </head>
 <body>
 <div class="wrap">
-<h1>AutoIrrigation Web</h1>
+<h1>AutoIrrigation · 调试</h1>
+<p class="hint"><a href="/" style="color:var(--accent)">← 返回主页</a> · 联调/开发用，家人用主页即可</p>
 <div class="live" id="liveHint">刷新中…</div>
 
 <div class="card" id="statusCard"><h2>实时状态</h2><div id="statusBody">加载中…</div></div>
@@ -528,7 +704,8 @@ void WebServerUi::tickWiFi() {
   wifi_connect_start_ms_ = now;
 }
 
-void WebServerUi::handleRoot() { server.send_P(200, "text/html", kDashboardHtml); }
+void WebServerUi::handleRoot() { server.send_P(200, "text/html", kHomeHtml); }
+void WebServerUi::handleDev() { server.send_P(200, "text/html", kDevHtml); }
 
 namespace {
 
@@ -643,6 +820,11 @@ void WebServerUi::handleSettingsGet() {
   doc["pulses_per_liter"] = ctx_->config->pulses_per_liter;
   doc["dry_run_sec"] = ctx_->config->dry_run_sec;
   doc["zone_count"] = ctx_->config->zone_count;
+  doc["auto_window_enabled"] = ctx_->config->auto_window_enabled;
+  doc["auto_win_sh"] = ctx_->config->auto_win_sh;
+  doc["auto_win_sm"] = ctx_->config->auto_win_sm;
+  doc["auto_win_eh"] = ctx_->config->auto_win_eh;
+  doc["auto_win_em"] = ctx_->config->auto_win_em;
   doc["max_zones"] = MAX_ZONES;
 #if defined(BOARD_VALVE_COUNT)
   doc["max_valves"] = BOARD_VALVE_COUNT;
@@ -661,6 +843,11 @@ void WebServerUi::handleSettingsGet() {
     z["schedule_minute"] = ctx_->zones[i].schedule_minute;
     z["cal_dry"] = ctx_->zones[i].cal_dry;
     z["cal_wet"] = ctx_->zones[i].cal_wet;
+    z["window_override"] = ctx_->zones[i].window_override;
+    z["win_sh"] = ctx_->zones[i].win_sh;
+    z["win_sm"] = ctx_->zones[i].win_sm;
+    z["win_eh"] = ctx_->zones[i].win_eh;
+    z["win_em"] = ctx_->zones[i].win_em;
   }
 
   String out;
@@ -695,6 +882,13 @@ void WebServerUi::handleSettingsPost() {
   if (doc["zone_count"].is<uint8_t>()) {
     applyZoneCount(doc["zone_count"]);
   }
+  if (doc["auto_window_enabled"].is<bool>()) {
+    ctx_->config->auto_window_enabled = doc["auto_window_enabled"];
+  }
+  if (doc["auto_win_sh"].is<uint8_t>()) ctx_->config->auto_win_sh = doc["auto_win_sh"];
+  if (doc["auto_win_sm"].is<uint8_t>()) ctx_->config->auto_win_sm = doc["auto_win_sm"];
+  if (doc["auto_win_eh"].is<uint8_t>()) ctx_->config->auto_win_eh = doc["auto_win_eh"];
+  if (doc["auto_win_em"].is<uint8_t>()) ctx_->config->auto_win_em = doc["auto_win_em"];
 
   if (doc["zones"].is<JsonArray>()) {
     JsonArray arr = doc["zones"].as<JsonArray>();
@@ -735,6 +929,13 @@ void WebServerUi::handleSettingsPost() {
       if (z["cal_wet"].is<uint16_t>()) {
         ctx_->zones[i].cal_wet = z["cal_wet"];
       }
+      if (z["window_override"].is<bool>()) {
+        ctx_->zones[i].window_override = z["window_override"];
+      }
+      if (z["win_sh"].is<uint8_t>()) ctx_->zones[i].win_sh = z["win_sh"];
+      if (z["win_sm"].is<uint8_t>()) ctx_->zones[i].win_sm = z["win_sm"];
+      if (z["win_eh"].is<uint8_t>()) ctx_->zones[i].win_eh = z["win_eh"];
+      if (z["win_em"].is<uint8_t>()) ctx_->zones[i].win_em = z["win_em"];
       ++i;
     }
   }
@@ -970,8 +1171,41 @@ void WebServerUi::handleWifiPost() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+namespace {
+const char *triggerText(uint8_t t) {
+  switch (t) {
+    case 1: return "threshold";
+    case 2: return "schedule";
+    case 3: return "manual";
+    default: return "unknown";
+  }
+}
+}  // namespace
+
+void WebServerUi::handleHistory() {
+  JsonDocument doc;
+  JsonArray records = doc["records"].to<JsonArray>();
+  const uint8_t n = g_history.count();
+  const uint8_t limit = n < 50 ? n : 50;
+  for (uint8_t i = 0; i < limit; ++i) {
+    const IrrigationRecord *r = g_history.get(i);
+    if (r == nullptr) {
+      break;
+    }
+    JsonObject o = records.add<JsonObject>();
+    o["ts"] = r->ts;
+    o["zone"] = r->zone;
+    o["volume_ml"] = r->volume_ml;
+    o["trigger"] = triggerText(r->trigger);
+  }
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
 void WebServerUi::setupRoutes() {
   server.on("/", HTTP_GET, [this]() { handleRoot(); });
+  server.on("/dev", HTTP_GET, [this]() { handleDev(); });
   server.on("/api/status", HTTP_GET, [this]() { handleStatus(); });
   server.on("/api/settings", HTTP_GET, [this]() { handleSettingsGet(); });
   server.on("/api/settings", HTTP_POST, [this]() { handleSettingsPost(); });
@@ -988,6 +1222,7 @@ void WebServerUi::setupRoutes() {
   server.on("/api/auto", HTTP_POST, [this]() { handleAuto(); });
   server.on("/api/wifi", HTTP_GET, [this]() { handleWifiGet(); });
   server.on("/api/wifi", HTTP_POST, [this]() { handleWifiPost(); });
+  server.on("/api/history", HTTP_GET, [this]() { handleHistory(); });
 }
 
 void WebServerUi::loop() {
