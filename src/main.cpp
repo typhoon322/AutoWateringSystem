@@ -12,6 +12,7 @@
 #include "sensor/ads1115.h"
 #include "sensor/flow_meter.h"
 #include "sensor/moisture_sensor.h"
+#include "storage/irrigation_history.h"
 #include "storage/settings_store.h"
 #include "web/web_server.h"
 
@@ -159,6 +160,7 @@ void setup() {
   g_zone_manager.begin();
 
   g_settings.begin();
+  g_history.begin();
   g_ctx = {&g_sys_config, g_zone_configs, g_zone_status, &g_sys_status};
   g_ctx_ex = {&g_sys_config, g_zone_configs, g_zone_status, &g_sys_status, &g_controller};
   g_settings.applyDefaults(g_ctx);
