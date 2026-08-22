@@ -38,6 +38,7 @@
 | `docs/project-status.md` | — | 项目里程碑、上下文摘要（换目录/新 Chat 用） |
 | `docs/bom.md` | wiring, user-manual | 元器件变更 |
 | `docs/wiring.md` | user-manual, bom | 用户接线步骤 |
+| `docs/engineering-wiring.md` | bom, wiring | 工程化布线定稿（汇流排/端子排/施工） |
 
 ## 文档文件路径
 
@@ -74,3 +75,4 @@
 | 2026-08-01 | C3 0.42 OLED 板：引脚改为 I2C 5/6、流量计 GPIO7；新增 board-esp32-c3-042-oled.md |
 | 2026-08-18 | Web dashboard 联调测试增强：features 字段、状态展示、泵计时/ppl/安全测试/步骤引导 |
 | 2026-08-18 | 继电器选型红线：3.3V MCU 不可直驱 5V/12V 线圈光耦模块；固件改"高阻关断+0V 吸合"（pca9555/valve/pump 驱动） |
+| 2026-08-18 | 工程布线方案 v1.0 定稿（docs/engineering-wiring.md）：汇流排/端子排/湿度计线束/10 盆扩展 |
