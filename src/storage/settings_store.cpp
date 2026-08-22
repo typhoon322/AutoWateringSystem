@@ -41,6 +41,11 @@ void SettingsStore::applyDefaults(SystemContext &ctx) {
   ctx.config->wifi_enabled = RADIO_WIFI_DEFAULT_ENABLED != 0;
   copyString(ctx.config->wifi_ssid, sizeof(ctx.config->wifi_ssid), WIFI_SSID);
   copyString(ctx.config->wifi_pass, sizeof(ctx.config->wifi_pass), WIFI_PASS);
+  ctx.config->auto_window_enabled = true;
+  ctx.config->auto_win_sh = 17;
+  ctx.config->auto_win_sm = 0;
+  ctx.config->auto_win_eh = 21;
+  ctx.config->auto_win_em = 0;
 
   for (uint8_t i = 0; i < MAX_ZONES; ++i) {
     char name[16];
@@ -56,6 +61,9 @@ void SettingsStore::applyDefaults(SystemContext &ctx) {
     ctx.zones[i].cal_dry = DEFAULT_CAL_DRY;
     ctx.zones[i].cal_wet = DEFAULT_CAL_WET;
     ctx.zones[i].schedule_fired_today = false;
+    ctx.zones[i].window_override = false;
+    ctx.zones[i].win_sh = 17; ctx.zones[i].win_sm = 0;
+    ctx.zones[i].win_eh = 21; ctx.zones[i].win_em = 0;
   }
 }
 
@@ -79,6 +87,11 @@ bool SettingsStore::load(SystemContext &ctx) {
     ctx.config->zone_count = MAX_ZONES;
   }
   ctx.config->wifi_enabled = prefs.getUChar("wifiEn", RADIO_WIFI_DEFAULT_ENABLED) != 0;
+  ctx.config->auto_window_enabled = prefs.getUChar("aWinEn", 1) != 0;
+  ctx.config->auto_win_sh = prefs.getUChar("aWinSH", 17);
+  ctx.config->auto_win_sm = prefs.getUChar("aWinSM", 0);
+  ctx.config->auto_win_eh = prefs.getUChar("aWinEH", 21);
+  ctx.config->auto_win_em = prefs.getUChar("aWinEM", 0);
 
   String ssid = prefs.getString("wifiSSID", "");
   String pass = prefs.getString("wifiPass", "");
@@ -109,6 +122,11 @@ bool SettingsStore::load(SystemContext &ctx) {
     ctx.zones[i].cal_dry = prefs.getUShort(zoneKey("zDry", i), DEFAULT_CAL_DRY);
     ctx.zones[i].cal_wet = prefs.getUShort(zoneKey("zWet", i), DEFAULT_CAL_WET);
     ctx.zones[i].schedule_fired_today = false;
+    ctx.zones[i].window_override = prefs.getUChar(zoneKey("zWinE", i), 0) != 0;
+    ctx.zones[i].win_sh = prefs.getUChar(zoneKey("zWinSH", i), 17);
+    ctx.zones[i].win_sm = prefs.getUChar(zoneKey("zWinSM", i), 0);
+    ctx.zones[i].win_eh = prefs.getUChar(zoneKey("zWinEH", i), 21);
+    ctx.zones[i].win_em = prefs.getUChar(zoneKey("zWinEM", i), 0);
   }
 
   return true;
@@ -126,6 +144,11 @@ bool SettingsStore::save(const SystemContext &ctx) {
   prefs.putUChar("dryRun", ctx.config->dry_run_sec);
   prefs.putUChar("zCnt", ctx.config->zone_count);
   prefs.putUChar("wifiEn", ctx.config->wifi_enabled ? 1 : 0);
+  prefs.putUChar("aWinEn", ctx.config->auto_window_enabled ? 1 : 0);
+  prefs.putUChar("aWinSH", ctx.config->auto_win_sh);
+  prefs.putUChar("aWinSM", ctx.config->auto_win_sm);
+  prefs.putUChar("aWinEH", ctx.config->auto_win_eh);
+  prefs.putUChar("aWinEM", ctx.config->auto_win_em);
   prefs.putString("wifiSSID", ctx.config->wifi_ssid);
   prefs.putString("wifiPass", ctx.config->wifi_pass);
 
@@ -140,6 +163,11 @@ bool SettingsStore::save(const SystemContext &ctx) {
     prefs.putUChar(zoneKey("zSchM", i), ctx.zones[i].schedule_minute);
     prefs.putUShort(zoneKey("zDry", i), ctx.zones[i].cal_dry);
     prefs.putUShort(zoneKey("zWet", i), ctx.zones[i].cal_wet);
+    prefs.putUChar(zoneKey("zWinE", i), ctx.zones[i].window_override ? 1 : 0);
+    prefs.putUChar(zoneKey("zWinSH", i), ctx.zones[i].win_sh);
+    prefs.putUChar(zoneKey("zWinSM", i), ctx.zones[i].win_sm);
+    prefs.putUChar(zoneKey("zWinEH", i), ctx.zones[i].win_eh);
+    prefs.putUChar(zoneKey("zWinEM", i), ctx.zones[i].win_em);
   }
 
   return true;

@@ -38,6 +38,9 @@ struct ZoneConfig {
   uint16_t cal_dry;
   uint16_t cal_wet;
   bool schedule_fired_today;
+  bool window_override;             // 覆盖全局时间窗口
+  uint8_t win_sh, win_sm;           // 覆盖窗口开始 HH:MM
+  uint8_t win_eh, win_em;           // 覆盖窗口结束 HH:MM
 };
 
 struct SystemConfig {
@@ -49,6 +52,9 @@ struct SystemConfig {
   bool wifi_enabled;
   char wifi_ssid[33];
   char wifi_pass[65];
+  bool auto_window_enabled;         // 全局自动浇水时间窗口总开关
+  uint8_t auto_win_sh, auto_win_sm; // 窗口开始（默认 17:00）
+  uint8_t auto_win_eh, auto_win_em; // 窗口结束（默认 21:00）
 };
 
 struct ZoneStatus {
