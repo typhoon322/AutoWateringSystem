@@ -104,7 +104,7 @@ button{padding:12px;border:none;border-radius:10px;font-weight:700;cursor:pointe
 const MAXZ=10;
 let settings={};
 async function api(p,o){const r=await fetch(p,o);return r.json()}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 function pctColor(z){
   if(!z.sensor_valid)return 'dead';
   if(z.moisture_pct < z.moisture_low)return 'dry';
@@ -127,11 +127,11 @@ function renderZones(zones){
     const c=pctColor(z);
     const pct=z.moisture_pct!=null?z.moisture_pct:'--';
     h+='<div class="zone"><div class="zone-head" onclick="toggleZone('+i+')">'+
-      '<div><span class="zone-name">🪴 '+esc(z.name||('Zone'+i))+'</span><br><span class="'+c+'"><span class="status-dot"></span>'+pctLabel(c)+'</span></div>'+
-      '<div class="zone-pct '+c+'">'+pct+'%</div></div>'+
+      '<div><span class="zone-name">🪴 '+esc(z.name||('Zone'+i))+'</span><br><span class="'+c+'" id="zs'+i+'"><span class="status-dot"></span>'+pctLabel(c)+'</span></div>'+
+      '<div class="zone-pct '+c+'" id="zp'+i+'">'+pct+'%</div></div>'+
       '<div class="zone-actions" id="za'+i+'">'+
       '<div class="row"><span>自动浇水</span><button class="switch'+(z.auto_enabled?' on':'')+'" onclick="toggleAuto('+i+')"></button></div>'+
-      '<div class="row"><label>水量 ml</label><input type="number" id="vol'+i+'" value="'+(z.volume_ml||100)+'" min="10"></div>'+
+      '<div class="row"><label>水量 ml</label><input type="number" id="vol'+i+'" value="'+(z.volume_ml!=null&&z.volume_ml>0?z.volume_ml:100)+'" min="10"></div>'+
       '<button class="btn-go" id="btnW'+i+'" onclick="doWater('+i+')">浇水</button></div></div>';
   }
   el.innerHTML=h||'（未配置盆数）';
@@ -171,6 +171,20 @@ async function refreshStatus(){
     const btn=document.getElementById('btnW'+i);
     if(btn){btn.disabled=d.pump;btn.textContent=d.pump?'浇水中…':'浇水'}
   }
+  const zc=document.getElementById('zonesCard');
+  if(zc&&d.zones){
+    for(let i=0;i<d.zones.length;i++){
+      const z=d.zones[i]||{};
+      const pctEl=document.getElementById('zp'+i);
+      if(pctEl){
+        const c=pctColor(z);
+        pctEl.textContent=(z.moisture_pct!=null?z.moisture_pct:'--')+'%';
+        pctEl.className='zone-pct '+c;
+        const st=document.getElementById('zs'+i);
+        if(st){st.className=c;st.innerHTML='<span class="status-dot"></span>'+pctLabel(c)}
+      }
+    }
+  }
 }
 async function renderHistory(){
   let h=null;
@@ -180,7 +194,7 @@ async function renderHistory(){
   const names=settings.zones||[];
   const trig={manual:'手动',threshold:'自动',schedule:'定时'};
   el.innerHTML=h.records.slice(0,10).map(r=>{
-    const n=names[r.zone]?names[r.zone].name:('盆'+(r.zone+1));
+    const n=((names[r.zone]||{}).name)||('盆'+(r.zone+1));
     const t=r.ts?new Date(r.ts*1000).toLocaleString('zh-CN',{hour12:false}):'--';
     return '<div class="rec"><span>'+(trig[r.trigger]||r.trigger)+' · '+esc(n)+' · '+r.volume_ml+'ml</span><span class="t">'+t+'</span></div>';
   }).join('');
@@ -323,6 +337,9 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 <div><label>最长泵运行 (s)</label><input type="number" id="maxRun"></div>
 <div><label>日限额 (ml)</label><input type="number" id="dailyLim"></div>
 <div><label>干转判定 (s)</label><input type="number" id="dryRun"></div>
+<div class="chk"><input type="checkbox" id="aWinEn"><span>自动浇水时段窗口</span></div>
+<div><label>窗口开始 HH:MM</label><input type="time" id="aWinS"></div>
+<div><label>窗口结束 HH:MM</label><input type="time" id="aWinE"></div>
 </div>
 <button class="btn-ghost" style="width:100%;margin-top:8px" onclick="applyZoneCount()">仅应用盆数（立即生效）</button>
 </div>
@@ -345,7 +362,7 @@ let settings={};
 let pumpOnSince=null;
 async function api(p,o){const r=await fetch(p,o);return r.json()}
 function msg(t){document.getElementById('msg').textContent=t}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 async function refreshStatus(){
   let d=null;
   try{d=await api('/api/status')}catch(e){}
@@ -391,12 +408,21 @@ function buildZoneForms(zc,zones){
       '<div><label>湿度上限 %</label><input type="number" id="zHi'+i+'" value="'+(z.moisture_high||60)+'"></div></div>'+
       '<div class="grid2"><div><label>单次 ml</label><input type="number" id="zVol'+i+'" value="'+(z.volume_ml||100)+'"></div>'+
       '<div><label>定时 HH:MM</label><input id="zSch'+i+'" value="'+String(z.schedule_hour||8).padStart(2,'0')+':'+String(z.schedule_minute||0).padStart(2,'0')+'"></div></div>'+
+      '<div class="grid2"><div><label>覆盖窗口 开始</label><input type="time" id="zWS'+i+'"></div>'+
+      '<div><label>覆盖窗口 结束</label><input type="time" id="zWE'+i+'"></div></div>'+
+      '<div class="chk"><input type="checkbox" id="zWO'+i+'"><span>使用覆盖窗口（否则跟随全局）</span></div>'+
       '<div class="grid2"><div><label>校准 干 ADC</label><input type="number" id="zDry'+i+'" value="'+(z.cal_dry||3200)+'"></div>'+
       '<div><label>校准 湿 ADC</label><input type="number" id="zWet'+i+'" value="'+(z.cal_wet||1400)+'"></div></div>'+
       '<div class="chk"><input type="checkbox" id="zAuto'+i+'" '+(z.auto_enabled?'checked':'')+'><span>阈值自动</span></div>'+
       '<div class="chk"><input type="checkbox" id="zSchE'+i+'" '+(z.schedule_enabled?'checked':'')+'><span>定时浇水</span></div></div>';
   }
   document.getElementById('zoneForms').innerHTML=h;
+  for(let i=0;i<n;i++){
+    const z=zones[i]||{};
+    document.getElementById('zWO'+i).checked=!!z.window_override;
+    document.getElementById('zWS'+i).value=String(z.win_sh||17).padStart(2,'0')+':'+String(z.win_sm||0).padStart(2,'0');
+    document.getElementById('zWE'+i).value=String(z.win_eh||21).padStart(2,'0')+':'+String(z.win_em||0).padStart(2,'0');
+  }
   const sel=document.getElementById('testZone');
   sel.innerHTML='';
   for(let i=0;i<n;i++)sel.innerHTML+='<option value="'+i+'">'+(zones[i]&&zones[i].name||('Zone'+i))+'</option>';
@@ -409,6 +435,9 @@ async function loadAll(){
   document.getElementById('maxRun').value=s.max_run_sec||60;
   document.getElementById('dailyLim').value=s.daily_limit_ml||2000;
   document.getElementById('dryRun').value=s.dry_run_sec||3;
+  document.getElementById('aWinEn').checked=!!s.auto_window_enabled;
+  document.getElementById('aWinS').value=String(s.auto_win_sh||17).padStart(2,'0')+':'+String(s.auto_win_sm||0).padStart(2,'0');
+  document.getElementById('aWinE').value=String(s.auto_win_eh||21).padStart(2,'0')+':'+String(s.auto_win_em||0).padStart(2,'0');
   document.getElementById('wifiSsid').value=w.ssid||'';
   document.getElementById('wifiPass').value='';
   document.getElementById('wifiEn').checked=!!w.enabled;
@@ -423,6 +452,11 @@ function collectSettings(){
     max_run_sec:+document.getElementById('maxRun').value,
     daily_limit_ml:+document.getElementById('dailyLim').value,
     dry_run_sec:+document.getElementById('dryRun').value,
+    auto_window_enabled:document.getElementById('aWinEn').checked,
+    auto_win_sh:+document.getElementById('aWinS').value.split(':')[0]||17,
+    auto_win_sm:+document.getElementById('aWinS').value.split(':')[1]||0,
+    auto_win_eh:+document.getElementById('aWinE').value.split(':')[0]||21,
+    auto_win_em:+document.getElementById('aWinE').value.split(':')[1]||0,
     zones:[]
   };
   for(let i=0;i<n;i++){
@@ -437,7 +471,12 @@ function collectSettings(){
       cal_dry:+document.getElementById('zDry'+i).value,
       cal_wet:+document.getElementById('zWet'+i).value,
       auto_enabled:document.getElementById('zAuto'+i).checked,
-      schedule_enabled:document.getElementById('zSchE'+i).checked
+      schedule_enabled:document.getElementById('zSchE'+i).checked,
+      window_override:document.getElementById('zWO'+i).checked,
+      win_sh:+document.getElementById('zWS'+i).value.split(':')[0]||17,
+      win_sm:+document.getElementById('zWS'+i).value.split(':')[1]||0,
+      win_eh:+document.getElementById('zWE'+i).value.split(':')[0]||21,
+      win_em:+document.getElementById('zWE'+i).value.split(':')[1]||0
     });
   }
   return body;
