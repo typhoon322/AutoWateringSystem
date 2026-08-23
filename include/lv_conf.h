@@ -7,8 +7,6 @@
 
 #if BOARD_HAS_LVGL
 
-#include "fonts/lv_font_cn_14.h"
-
 #define LV_COLOR_DEPTH 16
 #define LV_COLOR_16_SWAP 1
 
