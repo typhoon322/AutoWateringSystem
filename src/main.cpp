@@ -20,6 +20,11 @@
 #include "display/display_driver.h"
 #endif
 
+#if BOARD_HAS_LVGL
+#include "ui/lvgl_port.h"
+#include "ui/app_ui.h"
+#endif
+
 #include <time.h>
 #include <WiFi.h>
 
@@ -177,6 +182,14 @@ void setup() {
   g_controller.begin();
   g_cli.begin(&g_ctx_ex);
   g_web.begin(&g_ctx_ex);
+#if BOARD_HAS_LVGL
+  if (lvgl_port_begin()) {
+    app_ui_begin(&g_ctx_ex);
+    Serial.println(F("LVGL: ST7789 initialized"));
+  } else {
+    Serial.println(F("WARN: LVGL display init failed"));
+  }
+#endif
 
   configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
 
@@ -232,6 +245,11 @@ void loop() {
     g_display.showStatus(g_sys_status, g_zone_status, g_sys_config.zone_count, &g_controller,
                          ap_on);
   }
+#endif
+
+#if BOARD_HAS_LVGL
+  lvgl_port_loop();
+  app_ui_update();
 #endif
 
   updateStatusLed();
