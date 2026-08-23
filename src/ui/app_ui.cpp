@@ -27,7 +27,6 @@ lv_obj_t *g_fault = nullptr;
 
 // home
 lv_obj_t *g_h_status = nullptr;
-lv_obj_t *g_h_daily = nullptr;
 lv_obj_t *g_h_list = nullptr;
 
 // detail
@@ -44,7 +43,8 @@ lv_obj_t *g_f_btn = nullptr;
 uint8_t g_sel = 0;        // 选中盆
 uint16_t g_vol = 100;     // 待浇水量
 int8_t g_screen = 0;      // 0=home 1=detail 2=fault
-bool g_detail_ready = false;
+
+lv_group_t *g_group = nullptr;
 
 const char *stateCn(IrrigationState s) {
   switch (s) {
@@ -103,18 +103,29 @@ void updateHome() {
     } else {
       snprintf(item, sizeof(item), "盆%u  -- 无效", i + 1);
     }
-    lv_list_add_button(g_h_list, LV_SYMBOL_DOWN, item);
+    lv_obj_t *btn = lv_list_add_button(g_h_list, LV_SYMBOL_DOWN, item);
+    // 字体只设在文本 label 上：直接设按钮会连图标(符号)一起继承 cn 字体，丢失 ↓ 箭头
+    uint32_t ci;
+    for (ci = 0; ci < lv_obj_get_child_count(btn); ++ci) {
+      lv_obj_t *ch = lv_obj_get_child(btn, ci);
+      if (lv_obj_check_type(ch, &lv_label_class)) {
+        lv_obj_set_style_text_font(ch, &lv_font_cn_14, 0);
+        break;
+      }
+    }
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_EVENT_BUBBLE);      // 按键/点击冒泡
+    if (g_group != nullptr) {
+      lv_group_add_obj(g_group, btn);                    // 旋钮可聚焦
+    }
   }
 }
 
-void updateDetail() {
+void updateDetailInfo() {
   if (g_ctx == nullptr) return;
   const uint8_t i = g_sel;
   const ZoneStatus &zs = g_ctx->zone_status[i];
   const ZoneConfig &zc = g_ctx->zones[i];
   char line[48];
-  snprintf(line, sizeof(line), "盆%u", i + 1);
-  lv_label_set_text(g_d_name, line);
   if (zs.sensor_valid) {
     snprintf(line, sizeof(line), "湿度:%u%% %s\n下限:%u%% 上限:%u%%", zs.moisture_pct,
              pctCn(zs.moisture_pct, zc.moisture_low, zc.moisture_high, true),
@@ -124,6 +135,16 @@ void updateDetail() {
              zc.moisture_high);
   }
   lv_label_set_text(g_d_info, line);
+}
+
+void updateDetail() {
+  if (g_ctx == nullptr) return;
+  const uint8_t i = g_sel;
+  const ZoneConfig &zc = g_ctx->zones[i];
+  char line[48];
+  snprintf(line, sizeof(line), "盆%u", i + 1);
+  lv_label_set_text(g_d_name, line);
+  updateDetailInfo();
   g_vol = zc.volume_ml > 0 ? zc.volume_ml : 100;
   snprintf(line, sizeof(line), "水量:%u ml", g_vol);
   lv_label_set_text(g_d_vol, line);
@@ -157,7 +178,6 @@ void updateAll() {
 
 void openDetail(uint8_t zone) {
   g_sel = zone;
-  g_detail_ready = true;
   updateDetail();
   showScreen(1);
 }
@@ -211,13 +231,15 @@ void onScreenKey(lv_event_t *e) {
   }
 }
 
-lv_group_t *g_group = nullptr;
-
 void setupGroup() {
   g_group = input_encoder_group();
   if (g_group == nullptr) {
     return;
   }
+  lv_obj_add_flag(g_h_list, LV_OBJ_FLAG_EVENT_BUBBLE);
+  lv_obj_add_flag(g_d_btn, LV_OBJ_FLAG_EVENT_BUBBLE);
+  lv_obj_add_flag(g_d_back, LV_OBJ_FLAG_EVENT_BUBBLE);
+  lv_obj_add_flag(g_f_btn, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_group_add_obj(g_group, g_h_list);
   lv_group_add_obj(g_group, g_d_btn);
   lv_group_add_obj(g_group, g_d_back);
@@ -246,10 +268,6 @@ void app_ui_begin(SystemContextEx *ctx) {
   g_h_status = lv_label_create(g_home);
   lv_obj_set_style_text_font(g_h_status, &lv_font_cn_14, 0);
   lv_obj_align(g_h_status, LV_ALIGN_TOP_LEFT, 8, 30);
-
-  g_h_daily = lv_label_create(g_home);
-  lv_obj_set_style_text_font(g_h_daily, &lv_font_cn_14, 0);
-  lv_obj_align(g_h_daily, LV_ALIGN_TOP_LEFT, 8, 50);
 
   g_h_list = lv_list_create(g_home);
   lv_obj_set_size(g_h_list, LVGL_HOR_RES - 16, LVGL_VER_RES - 90);
@@ -322,6 +340,9 @@ void app_ui_begin(SystemContextEx *ctx) {
 void app_ui_update() {
   if (g_ctx == nullptr) return;
   updateAll();
+  if (g_screen == 1) {
+    updateDetailInfo();  // 仅刷新湿度行，不重置水量/不重建控件
+  }
 }
 
 #endif

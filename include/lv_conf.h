@@ -24,7 +24,6 @@
 
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_16 1
-#define LV_FONT_CUSTOM_1 1  // 自定义中文字库（src/ui/lv_font_cn_14.c）
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 
 #define LV_USE_LABEL 1
