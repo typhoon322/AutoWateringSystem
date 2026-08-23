@@ -229,6 +229,14 @@ Dashboard（`/`）内嵌联调测试能力（2026-08-18 增强）：
 - `GET /api/history`：最近 50 条浇水记录（NVS 持久化，重启保留）`{records:[{ts,zone,volume_ml,trigger}]}`，trigger: manual|threshold|schedule
 - 浇水时间窗口：`auto_window_enabled` + `auto_win_sh/sm/eh/em`（全局），每盆 `window_override` + `win_sh/sm/eh/em`（覆盖）；窗口外自动（阈值）不触发，手动/定时不受限；支持跨午夜
 
+### 显示屏（2026-08-22 接入）
+
+- ST7789 320×240 + LVGL 9 + 旋钮/按钮（`src/ui/`）
+- 3 屏：主界面（泵/今日水量 + 盆列表）、盆详情（浇水）、故障页（恢复）
+- 中文字库：`include/fonts/lv_font_cn_14.c`（Noto Sans SC 14px 子集，界面词）
+- 引脚集中在 `include/boards/board_s3.h`（LCD 组/输入组宏），线序按实际屏幕调整该处
+- 水量=该盆配置 volume_ml；旋钮调水量为后续迭代
+
 ### 5.1 GET /api/status
 
 ```json
