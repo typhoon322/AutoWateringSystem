@@ -21,18 +21,14 @@
 
 #define VALVE_ACTIVE_HIGH 0  // 低电平触发（同泵继电器，见上）
 
-// ── LCD 组（ST7789 SPI，6 线成束；线序按实际屏幕模块调整本组宏）──
-#define PIN_LCD_SCLK 12   // J1-18
-#define PIN_LCD_MOSI 11   // J1-17
-#define PIN_LCD_CS   10   // J1-16
-#define PIN_LCD_RST  13   // J1-19
-#define PIN_LCD_DC   14   // J1-20
-#define PIN_LCD_BLK  15   // J1-8（背光）
-// ── 输入组（编码器+按钮，4 线成束）──
-#define PIN_ENC_A    6    // J1-6
-#define PIN_ENC_B    7    // J1-7
-#define PIN_BTN_OK   16   // J1-9
-#define PIN_BTN_BACK 17   // J1-10
+// ── OLED 屏（SH1106 128×64，I2C 共用 GPIO8/9，地址 0x3C）──
+//   模块 IIC_SCL→PIN_I2C_SCL(9)、IIC_SDA→PIN_I2C_SDA(8)、3V3/GND 供电
+//   OLED_I2C_ADDR 0x3C 已在 boards/board_io_map.h 定义，此处不重复
+// ── 编码器/按键组（模块 TRIM_A/TRIM_B/KEY0/KEY1，线序用户自调）──
+#define PIN_ENC_A    6    // TRIM_A
+#define PIN_ENC_B    7    // TRIM_B
+#define PIN_BTN_OK   16   // KEY1=确认
+#define PIN_BTN_BACK 17   // KEY0=返回
 // ── 屏幕分辨率 ──
-#define LVGL_HOR_RES 320
-#define LVGL_VER_RES 240
+#define LVGL_HOR_RES 128
+#define LVGL_VER_RES 64

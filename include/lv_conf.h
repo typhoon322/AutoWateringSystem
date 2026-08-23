@@ -7,8 +7,7 @@
 
 #if BOARD_HAS_LVGL
 
-#define LV_COLOR_DEPTH 16
-#define LV_COLOR_16_SWAP 1
+#define LV_COLOR_DEPTH 1
 
 #define LV_USE_LOG 0
 
