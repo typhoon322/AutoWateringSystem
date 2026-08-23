@@ -94,3 +94,60 @@
 | 中文字库 Flash 开销 | 子集 ~400 字、14px，+~5% 可接受 |
 | LVGL 内存（320×240 部分缓冲） | 现用 PARTIAL 渲染 + g_buf 内部 RAM，RAM 余量充足（14.6%→预计 <30%） |
 | 与 Web 并行渲染互不干扰 | app_ui 只读共享数据，无锁冲突（单线程 loop） |
+
+---
+
+## 8. 硬件变更（v2：SH1106 128×64 I2C，2026-08-22 实测模块信息）
+
+> 用户选定模块：1.3 寸 OLED 128×64，SH1106 驱动，**I2C 接口**，板载 EC11 编码器（TRIM_A/B + PUSH）+ 两按键。
+> 引脚排针：`+3V3 GND KEY0 TRIM_B TRIM_A PUSH IIC_SCL IIC_SDA KEY1`。KEY0=返回键、KEY1=确认键。
+> **原 §4 的 ST7789 320×240 SPI 方案作废**，以下为 v2 适配。
+
+### 8.1 决策
+
+| 项 | 结论 |
+|---|---|
+| UI 框架 | **保留 LVGL**（复用 app_ui 3 屏逻辑），适配 SH1106 单色模式 |
+| 屏幕 I2C | **共用 GPIO8/9**（SH1106 地址 0x3C，与扩展板 0x20/0x48/0x49/0x4A 无冲突），少线零额外代码 |
+| 按键 | KEY0 → 返回（PIN_BTN_BACK）、KEY1 → 确认（PIN_BTN_OK）；**PUSH 预留不接** |
+| 编码器 | TRIM_A/B → PIN_ENC_A/B |
+| 颜色 | LVGL 单色 `LV_COLOR_DEPTH=1`；中文字库 **1bpp 重生成** |
+| 分辨率 | 128×64（LVGL_HOR_RES/VER_RES 改） |
+
+### 8.2 引脚（board_s3.h，v2）
+
+```c
+// ── OLED 屏（SH1106 128×64，I2C 共用 GPIO8/9，地址 0x3C）──
+//   模块 IIC_SCL→PIN_I2C_SCL(9)、IIC_SDA→PIN_I2C_SDA(8)，3V3/GND 供电
+#define OLED_I2C_ADDR 0x3C
+// ── 编码器/按键组（模块 TRIM_A/TRIM_B/KEY0/KEY1，线序用户自调）──
+#define PIN_ENC_A    6
+#define PIN_ENC_B    7
+#define PIN_BTN_OK   16   // KEY1=确认
+#define PIN_BTN_BACK 17   // KEY0=返回
+// ── 分辨率 ──
+#define LVGL_HOR_RES 128
+#define LVGL_VER_RES 64
+```
+
+> 删除原 §4.1 的 LCD SPI 组宏（10-15 不再使用）；`BOARD_HAS_OLED`（U8g2 路径）仍为 0，本屏走 LVGL。
+
+### 8.3 SH1106 驱动要点
+
+- 新 `src/ui/sh1106_panel.h/cpp` 替换 `st7789_panel.*`（旧文件删除）
+- I2C 复用现有 Wire（GPIO8/9，`irrigationI2cBegin` 已初始化）；地址 0x3C
+- LVGL flush 回调：接收 1bpp 脏区缓冲，按 SH1106 **页寻址**重排发送（每 8 行 = 1 page；列偏移 2 为 SH1106 特性，SET_COLUMN 用 0x02/0x10 或按模块实测）
+- 初始化序列：SH1106 标准（0xAE→显示关、0xD5/D3 时钟分频、0x40 起始行、0x8D/0x14 电荷泵、0xA8/0x3F 复用、0x81 对比度、0xA1/A0 段重映射按需、0xC8/C0 扫描方向按需、0xAF 显示开）
+
+### 8.4 单色配置（lv_conf.h / lvgl_port）
+
+- `LV_COLOR_DEPTH 1`、删除 `LV_COLOR_16_SWAP`
+- `g_buf` = `LVGL_HOR_RES * LVGL_VER_RES / 8` 字节（128×64/8 = 1KB）
+- 中文字库 `lv_font_cn_14` **以 `--bpp 1` 重生成**（单色无抗锯齿）
+
+### 8.5 界面布局（128×64）
+
+- 主界面：标题"自动灌溉"（顶部 1 行）+ 状态行（泵/今日，1 行）+ 盆列表 3 行（14px 中文）
+- 详情页：盆名 + 湿度/上下限（2-3 行）+ 水量 1 行 + 浇水/返回按钮（底部 2 行）
+- 故障页：原因 2 行 + 恢复按钮
+- 交互不变（旋钮选盆、KEY1 确认、KEY0 返回、故障强制）
