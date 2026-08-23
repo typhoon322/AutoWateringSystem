@@ -86,7 +86,7 @@ void showScreen(int8_t s) {
 void updateHome() {
   if (g_ctx == nullptr) return;
   char line[80];
-  snprintf(line, sizeof(line), "泵:%s %s 今日:%lu ml",
+  snprintf(line, sizeof(line), "泵:%s %s %lu ml",
            g_ctx->status->pump_on ? "开" : "关", stateCn(g_ctx->status->state),
            static_cast<unsigned long>(g_ctx->status->daily_ml));
   lv_label_set_text(g_h_status, line);
@@ -153,7 +153,7 @@ void updateDetail() {
 void updateFault() {
   if (g_ctx == nullptr) return;
   char line[64];
-  snprintf(line, sizeof(line), "%s 保护，泵已停止", safetyCn(g_ctx->status->safety));
+  snprintf(line, sizeof(line), "%s保护 泵已停", safetyCn(g_ctx->status->safety));
   lv_label_set_text(g_f_text, line);
 }
 
@@ -263,15 +263,15 @@ void app_ui_begin(SystemContextEx *ctx) {
   lv_obj_t *t = lv_label_create(g_home);
   lv_label_set_text(t, "自动灌溉");
   lv_obj_set_style_text_font(t, &lv_font_cn_14, 0);
-  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 6);
+  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 2);
 
   g_h_status = lv_label_create(g_home);
   lv_obj_set_style_text_font(g_h_status, &lv_font_cn_14, 0);
-  lv_obj_align(g_h_status, LV_ALIGN_TOP_LEFT, 8, 30);
+  lv_obj_align(g_h_status, LV_ALIGN_TOP_LEFT, 2, 20);
 
   g_h_list = lv_list_create(g_home);
-  lv_obj_set_size(g_h_list, LVGL_HOR_RES - 16, LVGL_VER_RES - 90);
-  lv_obj_align(g_h_list, LV_ALIGN_TOP_LEFT, 8, 74);
+  lv_obj_set_size(g_h_list, LVGL_HOR_RES - 4, 32);
+  lv_obj_align(g_h_list, LV_ALIGN_TOP_LEFT, 2, 36);
   lv_obj_add_event_cb(g_h_list, onListClick, LV_EVENT_CLICKED, nullptr);
 
   g_detail = lv_obj_create(g_scr);
@@ -281,19 +281,19 @@ void app_ui_begin(SystemContextEx *ctx) {
 
   g_d_name = lv_label_create(g_detail);
   lv_obj_set_style_text_font(g_d_name, &lv_font_cn_14, 0);
-  lv_obj_align(g_d_name, LV_ALIGN_TOP_MID, 0, 10);
+  lv_obj_align(g_d_name, LV_ALIGN_TOP_MID, 0, 2);
 
   g_d_info = lv_label_create(g_detail);
   lv_obj_set_style_text_font(g_d_info, &lv_font_cn_14, 0);
-  lv_obj_align(g_d_info, LV_ALIGN_TOP_LEFT, 8, 40);
+  lv_obj_align(g_d_info, LV_ALIGN_TOP_LEFT, 2, 22);
 
   g_d_vol = lv_label_create(g_detail);
   lv_obj_set_style_text_font(g_d_vol, &lv_font_cn_14, 0);
-  lv_obj_align(g_d_vol, LV_ALIGN_TOP_LEFT, 8, 110);
+  lv_obj_align(g_d_vol, LV_ALIGN_TOP_LEFT, 2, 48);
 
   g_d_btn = lv_button_create(g_detail);
-  lv_obj_set_size(g_d_btn, 160, 44);
-  lv_obj_align(g_d_btn, LV_ALIGN_BOTTOM_MID, 0, -80);
+  lv_obj_set_size(g_d_btn, 120, 26);
+  lv_obj_align(g_d_btn, LV_ALIGN_BOTTOM_MID, 0, -30);
   lv_obj_add_event_cb(g_d_btn, onDetailWater, LV_EVENT_CLICKED, nullptr);
   lv_obj_t *bl = lv_label_create(g_d_btn);
   lv_label_set_text(bl, "浇水");
@@ -301,8 +301,8 @@ void app_ui_begin(SystemContextEx *ctx) {
   lv_obj_center(bl);
 
   g_d_back = lv_button_create(g_detail);
-  lv_obj_set_size(g_d_back, 160, 44);
-  lv_obj_align(g_d_back, LV_ALIGN_BOTTOM_MID, 0, -24);
+  lv_obj_set_size(g_d_back, 120, 26);
+  lv_obj_align(g_d_back, LV_ALIGN_BOTTOM_MID, 0, -2);
   lv_obj_add_event_cb(g_d_back, onDetailBack, LV_EVENT_CLICKED, nullptr);
   lv_obj_t *bl2 = lv_label_create(g_d_back);
   lv_label_set_text(bl2, "返回");
@@ -317,15 +317,15 @@ void app_ui_begin(SystemContextEx *ctx) {
   lv_obj_t *ft = lv_label_create(g_fault);
   lv_label_set_text(ft, "故障");
   lv_obj_set_style_text_font(ft, &lv_font_cn_14, 0);
-  lv_obj_align(ft, LV_ALIGN_TOP_MID, 0, 20);
+  lv_obj_align(ft, LV_ALIGN_TOP_MID, 0, 6);
 
   g_f_text = lv_label_create(g_fault);
   lv_obj_set_style_text_font(g_f_text, &lv_font_cn_14, 0);
-  lv_obj_align(g_f_text, LV_ALIGN_TOP_MID, 0, 60);
+  lv_obj_align(g_f_text, LV_ALIGN_TOP_MID, 0, 28);
 
   g_f_btn = lv_button_create(g_fault);
-  lv_obj_set_size(g_f_btn, 160, 44);
-  lv_obj_align(g_f_btn, LV_ALIGN_BOTTOM_MID, 0, -60);
+  lv_obj_set_size(g_f_btn, 120, 26);
+  lv_obj_align(g_f_btn, LV_ALIGN_BOTTOM_MID, 0, -4);
   lv_obj_add_event_cb(g_f_btn, onFaultRecover, LV_EVENT_CLICKED, nullptr);
   lv_obj_t *fl = lv_label_create(g_f_btn);
   lv_label_set_text(fl, "恢复");
