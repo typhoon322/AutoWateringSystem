@@ -39,6 +39,7 @@
 | `docs/bom.md` | wiring, user-manual | 元器件变更 |
 | `docs/wiring.md` | user-manual, bom | 用户接线步骤 |
 | `docs/engineering-wiring.md` | bom, wiring | 工程化布线定稿（汇流排/端子排/施工） |
+| `docs/safety-checklist.md` | engineering-wiring, bom | 成品防护与电气安全施工清单 |
 
 ## 文档文件路径
 
@@ -79,3 +80,4 @@
 | 2026-08-22 | WebUI 家庭模式：`/` 家庭首页 + `/dev` 调试页、浇水历史（NVS 持久化）、浇水时间窗口（全局+每盆覆盖） |
 | 2026-08-22 | 显示屏接入：ST7789+LVGL 3 屏中文界面（主界面/浇水/故障）、中文字库、引脚宏集中 board_s3.h |
 | 2026-08-22 | 显示屏 v2：换 SH1106 128×64 I2C（共用总线 0x3C、LVGL 单色 1bpp、EC11+KEY0/KEY1），ST7789 方案作废 |
+| 2026-08-22 | 安全施工清单（docs/safety-checklist.md）：续流二极管/保险丝/防水盒/三防漆/看门狗/接线红线 |
