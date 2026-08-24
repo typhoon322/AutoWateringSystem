@@ -238,6 +238,12 @@ Dashboard（`/`）内嵌联调测试能力（2026-08-18 增强）：
 - 引脚集中 `include/boards/board_s3.h`（OLED_I2C_ADDR/编码器/按键宏），线序按实际模块调整该处
 - 水量=该盆配置 volume_ml；旋钮调水量为后续迭代
 
+### 开机自检（2026-08-22）
+
+- 上电自检：I2C 设备清单（PCA9555/ADS1115×3/屏幕 0x3C），缺失项警告不阻断
+- 自检期间 Web 写 API 与 CLI 写命令返回"自检中"；只读与急停豁免
+- 屏幕显示自检摘要（有警告红字停留 3s）；Web `/api/status.selfcheck` 暴露结果，家庭首页显示警告
+
 ### 5.1 GET /api/status
 
 ```json
