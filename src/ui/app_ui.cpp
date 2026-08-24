@@ -11,6 +11,7 @@
 
 #include "config.h"
 #include "control/irrigation_controller.h"
+#include "safety/selfcheck.h"
 #include "types/zone_config.h"
 #include "ui/input_encoder.h"
 
@@ -39,6 +40,9 @@ lv_obj_t *g_d_back = nullptr;
 // fault
 lv_obj_t *g_f_text = nullptr;
 lv_obj_t *g_f_btn = nullptr;
+
+// 自检摘要（一次性 label，定时器到期删除）
+lv_obj_t *g_sc_label = nullptr;
 
 uint8_t g_sel = 0;        // 选中盆
 uint16_t g_vol = 100;     // 待浇水量
@@ -246,6 +250,18 @@ void setupGroup() {
   lv_group_add_obj(g_group, g_f_btn);
 }
 
+// 自检摘要一次性定时器回调：删摘要 label → 进主界面。
+// 定时器 repeat_count=1 + auto_delete（LVGL 默认），跑完自动删除，无需手动 delete。
+void onSelfcheckTimeout(lv_timer_t *t) {
+  (void)t;
+  if (g_sc_label != nullptr) {
+    lv_obj_delete(g_sc_label);
+    g_sc_label = nullptr;
+  }
+  showScreen(0);
+  updateHome();
+}
+
 }  // namespace
 
 void app_ui_begin(SystemContextEx *ctx) {
@@ -332,9 +348,33 @@ void app_ui_begin(SystemContextEx *ctx) {
   lv_obj_set_style_text_font(fl, &lv_font_cn_14, 0);
   lv_obj_center(fl);
 
-  showScreen(0);
-  setupGroup();
-  updateHome();
+  // 自检摘要：先显示结果，定时器到期后再进主界面（有警告红字、停留更久）
+  {
+    g_sc_label = lv_label_create(g_scr);
+    lv_obj_set_style_text_font(g_sc_label, &lv_font_cn_14, 0);
+    char line[96];
+    // 单行约 166px 超 128px 屏宽，且字体无“屏”字，故拆三行（屏幕项用 ASCII "OLED"）
+    snprintf(line, sizeof(line), "自检: 阀%s\n湿度%u/3\nOLED: %s",
+             g_selfcheck.pca9555_ok ? "OK" : "X", g_selfcheck.ads_ok,
+             g_selfcheck.oled_ok ? "OK" : "X");
+    lv_label_set_text(g_sc_label, line);
+    lv_obj_align(g_sc_label, LV_ALIGN_CENTER, 0, 0);
+    if (g_selfcheck.warnings > 0) {
+      lv_obj_set_style_text_color(g_sc_label, lv_color_hex(0xFF5555), 0);
+    }
+
+    // 摘要期间隐藏三屏容器，避免背景重叠露出
+    lv_obj_add_flag(g_home, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(g_detail, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(g_fault, LV_OBJ_FLAG_HIDDEN);
+
+    setupGroup();
+
+    // 一次性定时器：无警告 1.5s / 有警告 3s，到期自动删除并进主界面
+    lv_timer_t *tm = lv_timer_create(onSelfcheckTimeout,
+                                     g_selfcheck.warnings > 0 ? 3000 : 1500, nullptr);
+    lv_timer_set_repeat_count(tm, 1);
+  }
 }
 
 void app_ui_update() {
