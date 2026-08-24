@@ -10,6 +10,7 @@
 #include "control/irrigation_controller.h"
 #include "control/zone_manager.h"
 #include "safety/safety_monitor.h"
+#include "safety/selfcheck.h"
 #include "sensor/flow_meter.h"
 #include "storage/settings_store.h"
 #include "storage/irrigation_history.h"
@@ -83,6 +84,7 @@ button{padding:12px;border:none;border-radius:10px;font-weight:700;cursor:pointe
 <span>队列: <b id="queueSt">0</b></span>
 <span id="winSt"></span>
 </div>
+<div class="card" id="scWarn" style="display:none;border-color:var(--warn);color:var(--warn);font-size:.85rem;padding:10px 14px"></div>
 </div>
 
 <div class="card fault" id="faultCard" style="display:none">
@@ -160,6 +162,15 @@ async function refreshStatus(){
   const live=document.getElementById('dailyMl');
   if(!d){live.textContent='连接中断';return}
   document.getElementById('dailyMl').textContent=d.daily_ml;
+  const sc=document.getElementById('scWarn');
+  if(sc){
+    if(d.selfcheck&&d.selfcheck.warnings>0){
+      sc.style.display='block';
+      sc.textContent='⚠️ 启动自检警告：'+(d.selfcheck.pca9555?'':' 阀扩展板缺失')+(d.selfcheck.ads_ok?'':' 湿度板缺失')+(d.selfcheck.oled?'':' 屏幕缺失')+'（详情见调试页）';
+    }else{
+      sc.style.display='none';
+    }
+  }
   document.getElementById('pumpSt').textContent=d.pump?'ON':'OFF';
   document.getElementById('zoneSt').textContent=(d.valve_on&&d.active_valve>=0)?'盆'+(d.active_valve+1):'无';
   document.getElementById('queueSt').textContent=d.queue;
@@ -802,6 +813,13 @@ void WebServerUi::handleStatus() {
   features["max_valves"] = 0;
 #endif
 
+  JsonObject sc = doc["selfcheck"].to<JsonObject>();
+  sc["pca9555"] = g_selfcheck.pca9555_ok;
+  sc["ads_ok"] = g_selfcheck.ads_ok;
+  sc["oled"] = g_selfcheck.oled_ok;
+  sc["warnings"] = g_selfcheck.warnings;
+  sc["done"] = g_selfcheck.done;
+
   JsonObject wifi = doc["wifi"].to<JsonObject>();
   wifi["enabled"] = ctx_->config->wifi_enabled;
   wifi["connected"] = WiFi.status() == WL_CONNECTED;
@@ -900,6 +918,11 @@ void WebServerUi::handleSettingsPost() {
     return;
   }
 
+  if (!g_selfcheck.done) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
+    return;
+  }
+
   JsonDocument doc;
   if (deserializeJson(doc, server.arg("plain"))) {
     server.send(400, "application/json", "{\"ok\":false}");
@@ -990,6 +1013,11 @@ void WebServerUi::handleIrrigate() {
     return;
   }
 
+  if (!g_selfcheck.done) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
+    return;
+  }
+
   JsonDocument doc;
   if (deserializeJson(doc, server.arg("plain"))) {
     server.send(400, "application/json", "{\"ok\":false}");
@@ -1021,6 +1049,10 @@ void WebServerUi::handleTestPump() {
     server.send(400, "application/json", "{\"ok\":false}");
     return;
   }
+  if (!g_selfcheck.done) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
+    return;
+  }
   JsonDocument doc;
   if (deserializeJson(doc, server.arg("plain"))) {
     server.send(400, "application/json", "{\"ok\":false}");
@@ -1034,6 +1066,10 @@ void WebServerUi::handleTestPump() {
 void WebServerUi::handleTestValve() {
   if (!server.hasArg("plain")) {
     server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  if (!g_selfcheck.done) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
     return;
   }
   JsonDocument doc;
@@ -1058,6 +1094,10 @@ void WebServerUi::handleTestValve() {
 void WebServerUi::handleCal() {
   if (ctx_ == nullptr || !server.hasArg("plain")) {
     server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  if (!g_selfcheck.done) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
     return;
   }
   JsonDocument doc;
@@ -1104,6 +1144,10 @@ void WebServerUi::handleFlow() {
 }
 
 void WebServerUi::handleFlowReset() {
+  if (!g_selfcheck.done) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
+    return;
+  }
   g_flow.resetSession();
   server.send(200, "application/json", "{\"ok\":true}");
 }
@@ -1124,6 +1168,10 @@ void WebServerUi::handleI2cScan() {
 }
 
 void WebServerUi::handleSample() {
+  if (!g_selfcheck.done) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
+    return;
+  }
   g_zone_manager.sampleAll();
   server.send(200, "application/json", "{\"ok\":true}");
 }
@@ -1131,6 +1179,11 @@ void WebServerUi::handleSample() {
 void WebServerUi::handleAuto() {
   if (ctx_ == nullptr || !server.hasArg("plain") || ctx_->zones == nullptr) {
     server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+
+  if (!g_selfcheck.done) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
     return;
   }
 
@@ -1185,6 +1238,11 @@ void WebServerUi::handleWifiGet() {
 void WebServerUi::handleWifiPost() {
   if (ctx_ == nullptr || !server.hasArg("plain")) {
     server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+
+  if (!g_selfcheck.done) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
     return;
   }
 
