@@ -9,6 +9,7 @@
 #include "control/irrigation_controller.h"
 #include "control/zone_manager.h"
 #include "safety/safety_monitor.h"
+#include "safety/selfcheck.h"
 #include "sensor/ads1115.h"
 #include "sensor/flow_meter.h"
 #include "sensor/moisture_sensor.h"
@@ -133,6 +134,9 @@ void setup() {
   Serial.printf("Board: %s\n", BOARD_NAME);
 
   irrigationI2cBegin();
+
+  // 开机自检（I2C 设备清单）；done=false 期间 Web/CLI 写操作锁定
+  run_selfcheck();
 
   if (!g_ads1115.begin()) {
     Serial.println(F("WARN: no ADS1115 detected on I2C"));
