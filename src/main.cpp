@@ -27,6 +27,7 @@
 
 #include <time.h>
 #include <WiFi.h>
+#include <esp_task_wdt.h>
 
 MoistureSensor g_moisture_sensors[MAX_ZONES] = {
     MoistureSensor(0), MoistureSensor(1), MoistureSensor(2), MoistureSensor(3),
@@ -124,6 +125,10 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
+  // 硬件看门狗：loop 卡死 10s 自动复位（safety-checklist §4）
+  esp_task_wdt_init(10, true);
+  esp_task_wdt_add(nullptr);  // 注册 Arduino loopTask
+
   Serial.printf("AutoIrrigation v%s\n", FIRMWARE_VERSION);
   Serial.printf("Board: %s\n", BOARD_NAME);
 
@@ -210,6 +215,8 @@ void setup() {
 }
 
 void loop() {
+  esp_task_wdt_reset();
+
   const uint32_t now = millis();
 
   g_cli.poll();
