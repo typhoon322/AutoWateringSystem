@@ -8,6 +8,7 @@
 #include "control/irrigation_controller.h"
 #include "control/zone_manager.h"
 #include "safety/safety_monitor.h"
+#include "safety/selfcheck.h"
 #include "bus/i2c_bus.h"
 #include "sensor/flow_meter.h"
 #include "storage/settings_store.h"
@@ -101,6 +102,10 @@ void SerialCli::dispatch(const char *line) {
   } else if (strcmp(cmd, "status") == 0) {
     printStatus();
   } else if (strcmp(cmd, "water") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
     char *z = strtok(nullptr, " ");
     char *ml = strtok(nullptr, " ");
     if (z && ml && ctx_->controller) {
@@ -114,6 +119,10 @@ void SerialCli::dispatch(const char *line) {
     }
     Serial.println(F("Stopped."));
   } else if (strcmp(cmd, "auto") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
     char *onoff = strtok(nullptr, " ");
     char *z = strtok(nullptr, " ");
     if (onoff && ctx_->zones) {
@@ -131,6 +140,10 @@ void SerialCli::dispatch(const char *line) {
       Serial.println(F("OK"));
     }
   } else if (strcmp(cmd, "set") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
     char *what = strtok(nullptr, " ");
     char *z = strtok(nullptr, " ");
     char *val = strtok(nullptr, " ");
@@ -179,6 +192,10 @@ void SerialCli::dispatch(const char *line) {
       Serial.println(F("OK"));
     }
   } else if (strcmp(cmd, "valve") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
 #if !IRRIGATION_HAS_VALVES
     Serial.println(F("Valves disabled in this build."));
 #else
@@ -197,6 +214,10 @@ void SerialCli::dispatch(const char *line) {
     }
 #endif
   } else if (strcmp(cmd, "schedule") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
     char *z = strtok(nullptr, " ");
     char *onoff = strtok(nullptr, " ");
     if (z && onoff && ctx_->zones) {
@@ -207,6 +228,10 @@ void SerialCli::dispatch(const char *line) {
       }
     }
   } else if (strcmp(cmd, "cal") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
     char *kind = strtok(nullptr, " ");
     char *z = strtok(nullptr, " ");
     if (kind && z && ctx_->zones && ctx_->zone_status) {
@@ -230,18 +255,30 @@ void SerialCli::dispatch(const char *line) {
                   ctx_->config->pulses_per_liter);
 #endif
   } else if (strcmp(cmd, "pump") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
     char *onoff = strtok(nullptr, " ");
     if (onoff) {
       g_pump.set(strcmp(onoff, "on") == 0);
       Serial.println(F("OK"));
     }
   } else if (strcmp(cmd, "ppl") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
     char *n = strtok(nullptr, " ");
     if (n && ctx_->config) {
       ctx_->config->pulses_per_liter = static_cast<uint16_t>(atoi(n));
       Serial.println(F("OK"));
     }
   } else if (strcmp(cmd, "wifi") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
     char *sub = strtok(nullptr, " ");
     if (sub && ctx_->config) {
       if (strcmp(sub, "on") == 0) {
@@ -262,6 +299,10 @@ void SerialCli::dispatch(const char *line) {
       Serial.println(F("OK (reboot or save+restart WiFi service)"));
     }
   } else if (strcmp(cmd, "save") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
     SystemContext sc = {ctx_->config, ctx_->zones, ctx_->zone_status, ctx_->status};
     if (g_settings.save(sc)) {
       Serial.println(F("Saved."));
