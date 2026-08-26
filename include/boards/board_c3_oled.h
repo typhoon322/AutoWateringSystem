@@ -12,6 +12,7 @@
 
 #define BOARD_NAME "ESP32-C3-0.42-OLED"
 #define BOARD_HAS_OLED 1
+#define BOARD_HAS_LVGL 0
 
 // Shared I2C bus (on-board OLED + ADS1115 + PCA9555)
 #define PIN_I2C_SDA 5

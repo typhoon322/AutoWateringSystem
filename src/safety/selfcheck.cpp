@@ -24,8 +24,8 @@ void run_selfcheck() {
   }
   Serial.printf("[selfcheck] ADS1115: %u/3\n", g_selfcheck.ads_ok);
 
-  // 屏幕 0x3C（仅在 LVGL 使能时才算）
-#if BOARD_HAS_LVGL
+  // 屏幕 0x3C（LVGL 或 OLED(U8g2) 构建均计入）
+#if BOARD_HAS_LVGL || BOARD_HAS_OLED
   g_selfcheck.oled_ok = irrigationI2cProbe(OLED_I2C_ADDR);
   Serial.printf("[selfcheck] OLED(0x3C): %s\n", g_selfcheck.oled_ok ? "PASS" : "FAIL");
 #endif
