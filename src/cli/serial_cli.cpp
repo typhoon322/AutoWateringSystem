@@ -18,6 +18,7 @@ extern ValveDriver g_valves;
 extern FlowMeter g_flow;
 extern ZoneManager g_zone_manager;
 extern SettingsStore g_settings;
+extern void purgeSet(bool on);  // main.cpp 排气模式
 
 void SerialCli::begin(SystemContextEx *ctx) {
   ctx_ = ctx;
@@ -64,6 +65,9 @@ void SerialCli::printStatus() const {
   }
   Serial.print(F(" safety="));
   Serial.print(ctx_->status->safety == SafetyState::Ok ? F("OK") : F("FAULT"));
+  if (ctx_->status->purge_on) {
+    Serial.print(F(" PURGE"));
+  }
   Serial.print(F(" daily="));
   Serial.print(ctx_->status->daily_ml);
   Serial.print(F("ml queue="));
@@ -226,6 +230,16 @@ void SerialCli::dispatch(const char *line) {
         ctx_->zones[zi].schedule_enabled = strcmp(onoff, "on") == 0;
         Serial.println(F("OK"));
       }
+    }
+  } else if (strcmp(cmd, "purge") == 0) {
+    if (!g_selfcheck.done) {
+      Serial.println(F("系统自检中…"));
+      return;
+    }
+    char *onoff = strtok(nullptr, " ");
+    if (onoff) {
+      purgeSet(strcmp(onoff, "on") == 0);
+      Serial.println(F("OK"));
     }
   } else if (strcmp(cmd, "cal") == 0) {
     if (!g_selfcheck.done) {

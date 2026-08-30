@@ -69,6 +69,9 @@ const char *IrrigationController::stateText() const {
 }
 
 bool IrrigationController::enqueue(uint8_t zone, uint16_t volume_ml, IrrigateTrigger trigger) {
+  if (status_->purge_on) {
+    return false;  // 排气中禁止入队
+  }
   if (zone >= config_->zone_count) {
     return false;
   }
@@ -209,6 +212,9 @@ void IrrigationController::abortSession() {
 }
 
 void IrrigationController::processQueue() {
+  if (status_->purge_on) {
+    return;  // 排气中不处理队列
+  }
   if (queue_head_ == queue_tail_) {
     return;
   }

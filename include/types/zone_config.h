@@ -75,6 +75,7 @@ struct SystemStatus {
   uint8_t queue_len;
   uint16_t session_ml;
   IrrigateTrigger trigger;
+  bool purge_on;  // 排气模式（阀全开+泵直通，绕过控制器不触发干转）
 };
 
 struct SystemContext {

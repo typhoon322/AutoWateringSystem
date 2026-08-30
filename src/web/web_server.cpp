@@ -22,6 +22,7 @@ extern ValveDriver g_valves;
 extern FlowMeter g_flow;
 extern ZoneManager g_zone_manager;
 extern SafetyMonitor g_safety;
+extern void purgeSet(bool on);  // main.cpp 排气模式
 
 namespace {
 WebServer server(80);
@@ -300,6 +301,10 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 <button class="btn-ghost" onclick="doPump(0)">泵 OFF</button>
 <button class="btn-ghost" onclick="doValve(-1)">阀全关</button>
 </div>
+<div class="btn-row">
+<button class="btn-ghost" onclick="doPurge(1)">排气 ON（阀全开+泵）</button>
+<button class="btn-ghost" onclick="doPurge(0)">排气 OFF</button>
+</div>
 <div class="row" id="pumpTimerRow" style="display:none"><span class="label">泵运行</span><span id="pumpTimer">—</span></div>
 <div class="btn-row">
 <button class="btn-ghost" onclick="doValveSel()">开选中阀</button>
@@ -511,6 +516,7 @@ async function doIrrigate(){
 async function doEstop(){await api('/api/emergency-stop',{method:'POST'});msg('急停');refreshStatus()}
 async function doStop(){await api('/api/stop',{method:'POST'});msg('故障已清除，可继续操作');refreshStatus()}
 async function doPump(on){await api('/api/test/pump',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:!!on})});refreshStatus()}
+async function doPurge(on){await api('/api/purge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:!!on})});msg(on?'排气中：阀全开+泵（手动停）':'排气结束');refreshStatus()}
 function updatePumpTimer(){
   if(pumpOnSince){
     const t=document.getElementById('pumpTimer');
@@ -802,6 +808,7 @@ void WebServerUi::handleStatus() {
   doc["active_zone"] = ctx_->status->active_zone;
   doc["queue"] = ctx_->status->queue_len;
   doc["session_ml"] = ctx_->status->session_ml;
+  doc["purge_on"] = ctx_->status->purge_on;
 
   JsonObject features = doc["features"].to<JsonObject>();
   features["valves"] = IRRIGATION_HAS_VALVES != 0;
@@ -1244,9 +1251,7 @@ void WebServerUi::handleWifiPost() {
   if (!g_selfcheck.done) {
     server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
     return;
-  }
-
-  JsonDocument doc;
+  }  JsonDocument doc;
   if (deserializeJson(doc, server.arg("plain"))) {
     server.send(400, "application/json", "{\"ok\":false}");
     return;
@@ -1265,6 +1270,25 @@ void WebServerUi::handleWifiPost() {
   SystemContext sc = {ctx_->config, ctx_->zones, ctx_->zone_status, ctx_->status};
   g_settings.save(sc);
   restartWiFi();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// 排气模式：阀全开 + 泵直通（绕过控制器，不触发干转）；手动停
+void WebServerUi::handlePurge() {
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  if (!g_selfcheck.done) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
+    return;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  purgeSet(doc["on"] | false);
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -1319,6 +1343,7 @@ void WebServerUi::setupRoutes() {
   server.on("/api/auto", HTTP_POST, [this]() { handleAuto(); });
   server.on("/api/wifi", HTTP_GET, [this]() { handleWifiGet(); });
   server.on("/api/wifi", HTTP_POST, [this]() { handleWifiPost(); });
+  server.on("/api/purge", HTTP_POST, [this]() { handlePurge(); });
   server.on("/api/history", HTTP_GET, [this]() { handleHistory(); });
 }
 

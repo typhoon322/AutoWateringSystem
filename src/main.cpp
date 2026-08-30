@@ -92,6 +92,25 @@ void clampZoneCount() {
   g_zone_manager.setCount(g_sys_config.zone_count);
 }
 
+// 排气模式：全部阀打开 + 泵直通（绕过控制器 → 不触发干转判定），手动停。
+// 用于新装/久置后排出管内空气；先清故障锁定与队列，避免与自动浇水冲突。
+void purgeSet(bool on) {
+  if (on) {
+    g_controller.stop();  // 清故障/队列/解锁
+    for (uint8_t i = 0; i < g_sys_config.zone_count; ++i) {
+      g_pca9555.setDriveLow(kValvePcaBit[i]);  // 全开（0V → 低电平触发吸合）
+    }
+    g_pump.set(true);
+  } else {
+    g_pump.set(false);
+    g_valves.closeAll();  // 全关（高阻）
+  }
+  g_sys_status.purge_on = on;
+  g_sys_status.pump_on = g_pump.isOn();
+  g_sys_status.valve_on = on;  // 排气时视为阀全开
+  Serial.printf("purge %s\n", on ? "ON" : "OFF");
+}
+
 void updateStatusLed() {
   const uint32_t now = millis();
   if (now - last_led_ms < LED_UPDATE_MS) {

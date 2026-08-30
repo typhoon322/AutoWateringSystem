@@ -35,6 +35,7 @@ class WebServerUi {
   void handleWifiGet();
   void handleWifiPost();
   void handleHistory();
+  void handlePurge();
   void applyZoneCount(uint8_t n);
 
   SystemContextEx *ctx_ = nullptr;
