@@ -23,6 +23,7 @@ extern FlowMeter g_flow;
 extern ZoneManager g_zone_manager;
 extern SafetyMonitor g_safety;
 extern void purgeSet(bool on);  // main.cpp 排气模式
+#include "control/stress_test.h"  // g_stress 稳定性测试
 
 namespace {
 WebServer server(80);
@@ -356,6 +357,19 @@ button{padding:10px;border:none;border-radius:6px;font-weight:600;cursor:pointer
 <div class="chk"><input type="checkbox" id="aWinEn"><span>自动浇水时段窗口</span></div>
 <div><label>窗口开始 HH:MM</label><input type="time" id="aWinS"></div>
 <div><label>窗口结束 HH:MM</label><input type="time" id="aWinE"></div>
+<div class="section"><div class="section-title">稳定性测试（周期全盆浇水，验证历史记录）</div>
+<div class="grid2">
+<div><label>总时长 (小时)</label><input type="number" id="testDur" min="1" max="24"></div>
+<div><label>间隔 (分钟)</label><input type="number" id="testInt" min="1"></div>
+<div><label>每盆水量 (ml)</label><input type="number" id="testVol" min="5"></div>
+<div><label>状态</label><span id="testState" style="font-size:.85rem">—</span></div>
+</div>
+<div class="btn-row">
+<button class="btn-go" onclick="doStress(1)">启动测试</button>
+<button class="btn-warn" onclick="doStress(0)">停止测试</button>
+</div>
+<div class="row" id="testInfo"><span class="label">统计</span><span>—</span></div>
+</div>
 </div>
 <button class="btn-ghost" style="width:100%;margin-top:8px" onclick="applyZoneCount()">仅应用盆数（立即生效）</button>
 </div>
@@ -454,6 +468,9 @@ async function loadAll(){
   document.getElementById('aWinEn').checked=!!s.auto_window_enabled;
   document.getElementById('aWinS').value=String(s.auto_win_sh!=null?s.auto_win_sh:17).padStart(2,'0')+':'+String(s.auto_win_sm!=null?s.auto_win_sm:0).padStart(2,'0');
   document.getElementById('aWinE').value=String(s.auto_win_eh!=null?s.auto_win_eh:21).padStart(2,'0')+':'+String(s.auto_win_em!=null?s.auto_win_em:0).padStart(2,'0');
+  document.getElementById('testDur').value=s.test_duration_h!=null?s.test_duration_h:8;
+  document.getElementById('testInt').value=s.test_interval_min!=null?s.test_interval_min:10;
+  document.getElementById('testVol').value=s.test_volume_ml!=null?s.test_volume_ml:20;
   document.getElementById('wifiSsid').value=w.ssid||'';
   document.getElementById('wifiPass').value='';
   document.getElementById('wifiEn').checked=!!w.enabled;
@@ -517,6 +534,26 @@ async function doEstop(){await api('/api/emergency-stop',{method:'POST'});msg('�
 async function doStop(){await api('/api/stop',{method:'POST'});msg('故障已清除，可继续操作');refreshStatus()}
 async function doPump(on){await api('/api/test/pump',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:!!on})});refreshStatus()}
 async function doPurge(on){await api('/api/purge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:!!on})});msg(on?'排气中：阀全开+泵（手动停）':'排气结束');refreshStatus()}
+async function doStress(on){
+  const body={enabled:!!on};
+  if(on){
+    body.duration_h=+document.getElementById('testDur').value||8;
+    body.interval_min=+document.getElementById('testInt').value||10;
+    body.volume_ml=+document.getElementById('testVol').value||20;
+  }
+  await api('/api/stress',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  msg(on?'稳定性测试启动':'测试已停止');loadStress();
+}
+async function loadStress(){
+  let r=null;
+  try{r=await api('/api/stress')}catch(e){}
+  const st=document.getElementById('testState');
+  const inf=document.getElementById('testInfo');
+  if(!r||!st||!inf)return;
+  st.textContent=r.enabled?('运行中 · 已 '+r.run_min+' 分钟 / 剩余 '+r.remain_min+' 分钟'):'未运行';
+  st.style.color=r.enabled?'var(--accent)':'var(--muted)';
+  inf.innerHTML='<span class="label">统计</span><span>轮次 '+r.round+' · 入队成功 '+r.ok+' · 失败 '+r.fail+' · 累计 '+r.total_ml+' ml</span>';
+}
 function updatePumpTimer(){
   if(pumpOnSince){
     const t=document.getElementById('pumpTimer');
@@ -614,10 +651,11 @@ function toggleStep(i){
   renderSteps();
 }
 loadAll();refreshStatus();fetchFlow();setTimeout(doI2cScan,500);
-loadSecChk();renderSteps();
+loadSecChk();renderSteps();loadStress();
 setInterval(refreshStatus,2000);
 setInterval(fetchFlow,2000);
 setInterval(updatePumpTimer,500);
+setInterval(loadStress,10000);
 </script>
 </body>
 </html>)rawliteral";
@@ -1292,12 +1330,67 @@ void WebServerUi::handlePurge() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+// 稳定性测试：GET 状态 / POST 配置与启停
+void WebServerUi::handleStress() {
+  if (ctx_ == nullptr) {
+    server.send(500, "application/json", "{}");
+    return;
+  }
+  if (server.method() == HTTP_GET) {
+    JsonDocument doc;
+    doc["enabled"] = g_stress.enabled();
+    doc["duration_h"] = ctx_->config->test_duration_h;
+    doc["interval_min"] = ctx_->config->test_interval_min;
+    doc["volume_ml"] = ctx_->config->test_volume_ml;
+    doc["round"] = g_stress.roundCount();
+    doc["ok"] = g_stress.okCount();
+    doc["fail"] = g_stress.failCount();
+    doc["total_ml"] = g_stress.totalMl();
+    if (g_stress.enabled()) {
+      const uint32_t run_ms = millis() - g_stress.startMs();
+      doc["run_min"] = run_ms / 60000U;
+      doc["remain_min"] = static_cast<uint32_t>(ctx_->config->test_duration_h) * 60U -
+                          run_ms / 60000U;
+    }
+    String out;
+    serializeJson(doc, out);
+    server.send(200, "application/json", out);
+    return;
+  }
+  // POST
+  if (!g_selfcheck.done || !server.hasArg("plain")) {
+    server.send(503, "application/json", "{\"ok\":false,\"error\":\"selfcheck\"}");
+    return;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  if (doc["duration_h"].is<uint8_t>()) {
+    ctx_->config->test_duration_h = doc["duration_h"];
+  }
+  if (doc["interval_min"].is<uint8_t>()) {
+    ctx_->config->test_interval_min = doc["interval_min"];
+  }
+  if (doc["volume_ml"].is<uint16_t>()) {
+    ctx_->config->test_volume_ml = doc["volume_ml"];
+  }
+  if (doc["enabled"].is<bool>()) {
+    g_stress.setEnabled(doc["enabled"]);
+  }
+  SystemContext sc = {ctx_->config, ctx_->zones, ctx_->zone_status, ctx_->status};
+  g_settings.save(sc);
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 namespace {
 const char *triggerText(uint8_t t) {
   switch (t) {
     case 1: return "threshold";
     case 2: return "schedule";
     case 3: return "manual";
+    case 4: return "test";
     default: return "unknown";
   }
 }
@@ -1344,6 +1437,8 @@ void WebServerUi::setupRoutes() {
   server.on("/api/wifi", HTTP_GET, [this]() { handleWifiGet(); });
   server.on("/api/wifi", HTTP_POST, [this]() { handleWifiPost(); });
   server.on("/api/purge", HTTP_POST, [this]() { handlePurge(); });
+  server.on("/api/stress", HTTP_GET, [this]() { handleStress(); });
+  server.on("/api/stress", HTTP_POST, [this]() { handleStress(); });
   server.on("/api/history", HTTP_GET, [this]() { handleHistory(); });
 }
 

@@ -46,6 +46,9 @@ void SettingsStore::applyDefaults(SystemContext &ctx) {
   ctx.config->auto_win_sm = 0;
   ctx.config->auto_win_eh = 21;
   ctx.config->auto_win_em = 0;
+  ctx.config->test_duration_h = 8;
+  ctx.config->test_interval_min = 10;
+  ctx.config->test_volume_ml = 20;
 
   for (uint8_t i = 0; i < MAX_ZONES; ++i) {
     char name[16];
@@ -92,6 +95,9 @@ bool SettingsStore::load(SystemContext &ctx) {
   ctx.config->auto_win_sm = prefs.getUChar("aWinSM", 0);
   ctx.config->auto_win_eh = prefs.getUChar("aWinEH", 21);
   ctx.config->auto_win_em = prefs.getUChar("aWinEM", 0);
+  ctx.config->test_duration_h = prefs.getUChar("testDur", 8);
+  ctx.config->test_interval_min = prefs.getUChar("testInt", 10);
+  ctx.config->test_volume_ml = prefs.getUShort("testVol", 20);
 
   String ssid = prefs.getString("wifiSSID", "");
   String pass = prefs.getString("wifiPass", "");
@@ -149,6 +155,9 @@ bool SettingsStore::save(const SystemContext &ctx) {
   prefs.putUChar("aWinSM", ctx.config->auto_win_sm);
   prefs.putUChar("aWinEH", ctx.config->auto_win_eh);
   prefs.putUChar("aWinEM", ctx.config->auto_win_em);
+  prefs.putUChar("testDur", ctx.config->test_duration_h);
+  prefs.putUChar("testInt", ctx.config->test_interval_min);
+  prefs.putUShort("testVol", ctx.config->test_volume_ml);
   prefs.putString("wifiSSID", ctx.config->wifi_ssid);
   prefs.putString("wifiPass", ctx.config->wifi_pass);
 

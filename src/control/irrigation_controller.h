@@ -29,6 +29,7 @@ class IrrigationController {
   bool requestManual(uint8_t zone, uint16_t volume_ml);
   bool requestThreshold(uint8_t zone, uint16_t volume_ml);
   bool requestSchedule(uint8_t zone, uint16_t volume_ml);
+  bool requestTest(uint8_t zone, uint16_t volume_ml);
   void resetScheduleFlags();
 
   const char *stateText() const;

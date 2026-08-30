@@ -98,6 +98,10 @@ bool IrrigationController::requestSchedule(uint8_t zone, uint16_t volume_ml) {
   return enqueue(zone, volume_ml, IrrigateTrigger::Schedule);
 }
 
+bool IrrigationController::requestTest(uint8_t zone, uint16_t volume_ml) {
+  return enqueue(zone, volume_ml, IrrigateTrigger::Test);
+}
+
 void IrrigationController::resetScheduleFlags() {
   for (uint8_t i = 0; i < config_->zone_count; ++i) {
     zone_configs_[i].schedule_fired_today = false;

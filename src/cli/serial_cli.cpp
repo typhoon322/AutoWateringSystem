@@ -9,6 +9,7 @@
 #include "control/zone_manager.h"
 #include "safety/safety_monitor.h"
 #include "safety/selfcheck.h"
+#include "control/stress_test.h"
 #include "bus/i2c_bus.h"
 #include "sensor/flow_meter.h"
 #include "storage/settings_store.h"
@@ -240,6 +241,24 @@ void SerialCli::dispatch(const char *line) {
     if (onoff) {
       purgeSet(strcmp(onoff, "on") == 0);
       Serial.println(F("OK"));
+    }
+  } else if (strcmp(cmd, "test") == 0) {
+    char *sub = strtok(nullptr, " ");
+    if (sub && strcmp(sub, "on") == 0) {
+      if (g_selfcheck.done) {
+        g_stress.setEnabled(true);
+      } else {
+        Serial.println(F("系统自检中…"));
+      }
+    } else if (sub && strcmp(sub, "off") == 0) {
+      g_stress.setEnabled(false);
+    } else {
+      Serial.printf("test %s: round=%lu ok=%lu fail=%lu total=%lu ml\n",
+                    g_stress.enabled() ? "ON" : "OFF",
+                    static_cast<unsigned long>(g_stress.roundCount()),
+                    static_cast<unsigned long>(g_stress.okCount()),
+                    static_cast<unsigned long>(g_stress.failCount()),
+                    static_cast<unsigned long>(g_stress.totalMl()));
     }
   } else if (strcmp(cmd, "cal") == 0) {
     if (!g_selfcheck.done) {

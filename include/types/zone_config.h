@@ -24,6 +24,7 @@ enum class IrrigateTrigger : uint8_t {
   Threshold,
   Schedule,
   Manual,
+  Test,  // 稳定性测试模式
 };
 
 struct ZoneConfig {
@@ -55,6 +56,10 @@ struct SystemConfig {
   bool auto_window_enabled;         // 全局自动浇水时间窗口总开关
   uint8_t auto_win_sh, auto_win_sm; // 窗口开始（默认 17:00）
   uint8_t auto_win_eh, auto_win_em; // 窗口结束（默认 21:00）
+  // 稳定性测试参数（enabled 为运行时状态，不持久化）
+  uint8_t test_duration_h;          // 测试总时长（小时，默认 8）
+  uint8_t test_interval_min;        // 触发间隔（分钟，默认 10）
+  uint16_t test_volume_ml;          // 每盆每次水量（ml，默认 20）
 };
 
 struct ZoneStatus {

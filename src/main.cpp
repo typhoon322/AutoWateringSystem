@@ -7,6 +7,7 @@
 #include "cli/serial_cli.h"
 #include "config.h"
 #include "control/irrigation_controller.h"
+#include "control/stress_test.h"
 #include "control/zone_manager.h"
 #include "safety/safety_monitor.h"
 #include "safety/selfcheck.h"
@@ -206,6 +207,7 @@ void setup() {
   g_controller.begin();
   g_cli.begin(&g_ctx_ex);
   g_web.begin(&g_ctx_ex);
+  g_stress.begin(&g_ctx_ex);
 #if BOARD_HAS_LVGL
   if (lvgl_port_begin()) {
     app_ui_begin(&g_ctx_ex);
@@ -256,6 +258,7 @@ void loop() {
     g_safety.setDryRunSec(0);
 #endif
     g_controller.tick();
+    g_stress.tick();
   }
 
   if (now - last_status_ms >= STATUS_PRINT_INTERVAL_MS) {
