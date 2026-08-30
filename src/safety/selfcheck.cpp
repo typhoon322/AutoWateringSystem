@@ -30,9 +30,11 @@ void run_selfcheck() {
   Serial.printf("[selfcheck] OLED(0x3C): %s\n", g_selfcheck.oled_ok ? "PASS" : "FAIL");
 #endif
 
-  g_selfcheck.warnings = (g_selfcheck.pca9555_ok ? 0 : 1) +
-                         (g_selfcheck.ads_ok < 1 ? 1 : 0) +
-                         (g_selfcheck.oled_ok ? 0 : 1);
+  uint8_t warn = (g_selfcheck.pca9555_ok ? 0 : 1) + (g_selfcheck.ads_ok < 1 ? 1 : 0);
+#if BOARD_HAS_LVGL || BOARD_HAS_OLED
+  warn += (g_selfcheck.oled_ok ? 0 : 1);
+#endif
+  g_selfcheck.warnings = warn;
   g_selfcheck.done = true;
   Serial.printf("[selfcheck] done, warnings=%u\n", g_selfcheck.warnings);
 }
