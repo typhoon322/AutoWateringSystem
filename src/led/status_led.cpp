@@ -10,7 +10,8 @@ NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod> g_pixel(1, PIN_STATUS_LED)
 
 void statusLedBegin() {
   g_pixel.Begin();
-  g_pixel.Show();  // 初始全灭
+  g_pixel.SetBrightness(38);  // 15% 亮度（255×0.15≈38），满亮度刺眼
+  g_pixel.Show();             // 初始全灭
 }
 
 void statusLedSet(uint32_t rgb) {
