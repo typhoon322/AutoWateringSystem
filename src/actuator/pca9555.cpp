@@ -15,6 +15,9 @@ constexpr uint8_t kRegConfig1 = 0x07;
 Pca9555 g_pca9555;
 
 bool Pca9555::writeReg8(uint8_t reg, uint8_t value) {
+  if (!ok_ && !reprobe()) {
+    return false;  // 离线：短路，避免 I2C 无 ACK 阻塞
+  }
   Wire.beginTransmission(addr7_);
   Wire.write(reg);
   Wire.write(value);
@@ -42,18 +45,12 @@ bool Pca9555::begin(uint8_t addr7) {
 }
 
 bool Pca9555::writeOutput(uint16_t value) {
-  if (!ok_) {
-    return false;  // 离线：短路，避免 I2C 无 ACK 阻塞
-  }
   output_ = value;
   return writeReg8(kRegOutput0, static_cast<uint8_t>(value & 0xFF)) &&
          writeReg8(kRegOutput1, static_cast<uint8_t>((value >> 8) & 0xFF));
 }
 
 bool Pca9555::writeConfig() {
-  if (!ok_) {
-    return false;
-  }
   return writeReg8(kRegConfig0, static_cast<uint8_t>(config_ & 0xFF)) &&
          writeReg8(kRegConfig1, static_cast<uint8_t>((config_ >> 8) & 0xFF));
 }
@@ -86,4 +83,27 @@ bool Pca9555::setDriveLow(uint8_t bit) {
   config_ &= static_cast<uint16_t>(~(1U << bit));  // 输出模式
   output_ &= static_cast<uint16_t>(~(1U << bit));  // 输出 0V
   return writeConfig() && writeOutput(output_);
+}
+
+bool Pca9555::reprobe() {
+  // 懒探测：ok_=false 时（如扩展板后接入）操作前自动重试，
+  // 成功则重新初始化（同 begin），热插拔无需重启
+  if (!irrigationI2cProbe(addr7_)) {
+    return false;
+  }
+  Wire.beginTransmission(addr7_);
+  Wire.write(kRegConfig0);
+  Wire.write(0xFF);
+  const bool ok0 = Wire.endTransmission() == 0;
+  Wire.beginTransmission(addr7_);
+  Wire.write(kRegConfig1);
+  Wire.write(0xFF);
+  const bool ok1 = Wire.endTransmission() == 0;
+  if (ok0 && ok1) {
+    config_ = 0xFFFF;
+    output_ = 0;
+    ok_ = true;
+    return true;
+  }
+  return false;
 }

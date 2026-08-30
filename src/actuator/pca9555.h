@@ -19,6 +19,7 @@ class Pca9555 {
  private:
   bool writeReg8(uint8_t reg, uint8_t value);
   bool writeConfig();
+  bool reprobe();  // 懒探测：ok_=false 时操作前自动重试（热插拔恢复）
 
   uint8_t addr7_ = 0;
   uint16_t output_ = 0;
