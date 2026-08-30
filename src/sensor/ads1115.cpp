@@ -41,7 +41,8 @@ bool readReg16(uint8_t addr7, uint8_t reg, uint16_t &value_out) {
 Ads1115 g_ads1115;
 
 bool Ads1115::begin() {
-  irrigationI2cBegin();
+  // 注意：不在此重复 irrigationI2cBegin()——main 已初始化，重复 Wire.begin 会破坏
+  // 总线状态，导致后续无 ACK 探测每次等满 ~2.2s 超时（2026-08-22 实测踩坑）
   const uint8_t addrs[] = {ADS1115_ADDR_0, ADS1115_ADDR_1, ADS1115_ADDR_2};
   bool any = false;
   for (uint8_t addr : addrs) {

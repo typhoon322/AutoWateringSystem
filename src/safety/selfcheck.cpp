@@ -12,15 +12,19 @@ void run_selfcheck() {
   Serial.println(F("[selfcheck] start"));
 
   // PCA9555 阀扩展板 0x20
+  uint32_t t0 = millis();
   g_selfcheck.pca9555_ok = irrigationI2cProbe(PCA9555_ADDR_VALVES);
-  Serial.printf("[selfcheck] PCA9555(0x20): %s\n", g_selfcheck.pca9555_ok ? "PASS" : "FAIL");
+  Serial.printf("[selfcheck] PCA9555(0x20): %s (%lu ms)\n", g_selfcheck.pca9555_ok ? "PASS" : "FAIL",
+                (unsigned long)(millis() - t0));
 
   // ADS1115 ×3
   g_selfcheck.ads_ok = 0;
   for (uint8_t a : {ADS1115_ADDR_0, ADS1115_ADDR_1, ADS1115_ADDR_2}) {
+    t0 = millis();
     if (irrigationI2cProbe(a)) {
       ++g_selfcheck.ads_ok;
     }
+    Serial.printf("[selfcheck]   probe 0x%02X: %lu ms\n", a, (unsigned long)(millis() - t0));
   }
   Serial.printf("[selfcheck] ADS1115: %u/3\n", g_selfcheck.ads_ok);
 

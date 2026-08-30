@@ -23,6 +23,7 @@ bool Pca9555::writeReg8(uint8_t reg, uint8_t value) {
 
 bool Pca9555::begin(uint8_t addr7) {
   addr7_ = addr7;
+  ok_ = false;
   for (uint8_t attempt = 0; attempt < 5; ++attempt) {
     if (!irrigationI2cProbe(addr7_)) {
       delay(20);
@@ -32,6 +33,7 @@ bool Pca9555::begin(uint8_t addr7) {
     if (writeReg8(kRegConfig0, 0xFF) && writeReg8(kRegConfig1, 0xFF)) {
       config_ = 0xFFFF;
       output_ = 0;
+      ok_ = true;
       return true;
     }
     delay(20);
@@ -40,12 +42,18 @@ bool Pca9555::begin(uint8_t addr7) {
 }
 
 bool Pca9555::writeOutput(uint16_t value) {
+  if (!ok_) {
+    return false;  // 离线：短路，避免 I2C 无 ACK 阻塞
+  }
   output_ = value;
   return writeReg8(kRegOutput0, static_cast<uint8_t>(value & 0xFF)) &&
          writeReg8(kRegOutput1, static_cast<uint8_t>((value >> 8) & 0xFF));
 }
 
 bool Pca9555::writeConfig() {
+  if (!ok_) {
+    return false;
+  }
   return writeReg8(kRegConfig0, static_cast<uint8_t>(config_ & 0xFF)) &&
          writeReg8(kRegConfig1, static_cast<uint8_t>((config_ >> 8) & 0xFF));
 }

@@ -8,6 +8,7 @@
 void irrigationI2cBegin() {
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   Wire.setClock(100000);  // breadboard-friendly; raise to 400k when wiring is short/stable
+  Wire.setTimeOut(50);    // 无 ACK/总线异常时 50ms 超时返回，避免长时间阻塞（2026-08-22 实测踩坑）
 }
 
 bool irrigationI2cProbe(uint8_t addr7) {

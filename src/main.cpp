@@ -126,7 +126,7 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  // 硬件看门狗：loop 卡死 10s 自动复位（safety-checklist §4）
+  // 硬件看门狗：loop 卡死自动复位（safety-checklist §4）
   esp_task_wdt_init(10, true);
   esp_task_wdt_add(nullptr);  // 注册 Arduino loopTask
 
@@ -138,18 +138,20 @@ void setup() {
   // 开机自检（I2C 设备清单）；done=false 期间 Web/CLI 写操作锁定
   run_selfcheck();
 
-  if (!g_ads1115.begin()) {
-    Serial.println(F("WARN: no ADS1115 detected on I2C"));
+  // 设备 begin 复用 selfcheck 探测结果：无设备时不重复探测
+  // （ESP32 Wire 无 ACK 探测实测固定 ~1s/次，重复探测会拖慢启动）
+  if (g_selfcheck.ads_ok > 0) {
+    g_ads1115.begin();
   } else {
-    Serial.println(F("I2C: ADS1115 OK"));
+    Serial.println(F("WARN: no ADS1115 detected on I2C"));
   }
 #if IRRIGATION_HAS_VALVES
-  if (!g_pca9555.begin(PCA9555_ADDR_VALVES)) {
-    Serial.println(F("WARN: PCA9555 valve expander not found"));
+  if (g_selfcheck.pca9555_ok) {
+    g_pca9555.begin(PCA9555_ADDR_VALVES);
+    g_valves.begin(BOARD_VALVE_COUNT, VALVE_ACTIVE_HIGH != 0);
   } else {
-    Serial.println(F("I2C: PCA9555 OK"));
+    Serial.println(F("WARN: PCA9555 valve expander not found"));
   }
-  g_valves.begin(BOARD_VALVE_COUNT, VALVE_ACTIVE_HIGH != 0);
 #else
   Serial.println(F("INFO: valves disabled (no PCA9555 / solenoids)"));
 #endif

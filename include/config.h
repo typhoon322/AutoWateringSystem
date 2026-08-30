@@ -48,8 +48,8 @@
 #define WIFI_PASS "onemore.2025"
 #define WIFI_HYBRID_MODE 1          // 1=AP+STA 同时开（混合模式）
 #define WIFI_AP_FALLBACK 1
-#define WIFI_AP_SSID "ESP32-IRRIGATION"
-#define WIFI_AP_PASS "irrigate2026"
+#define WIFI_AP_SSID "蓝瓜智控"      // UTF-8 中文 SSID（ESP32 原生支持）
+#define WIFI_AP_PASS "langua123"
 #define WIFI_RECONNECT_INTERVAL_MS 30000
 
 // OTA
