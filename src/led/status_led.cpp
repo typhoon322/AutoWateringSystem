@@ -6,7 +6,8 @@
 
 // 单颗 WS2812，GRB 顺序，800kHz，RMT 通道 0
 // （digitalWrite 无法驱动 WS2812——旧逻辑对板载 RGB 无效）
-NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod> g_pixel(1, PIN_STATUS_LED);
+// 用 NeoPixelBrightnessBus 变体以获得 SetBrightness（全局亮度）
+NeoPixelBrightnessBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod> g_pixel(1, PIN_STATUS_LED);
 
 void statusLedBegin() {
   g_pixel.Begin();
