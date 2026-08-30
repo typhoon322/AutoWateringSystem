@@ -16,6 +16,7 @@
 #include "storage/irrigation_history.h"
 #include "storage/settings_store.h"
 #include "web/web_server.h"
+#include "led/status_led.h"
 
 #if BOARD_HAS_OLED
 #include "display/display_driver.h"
@@ -99,32 +100,25 @@ void updateStatusLed() {
   last_led_ms = now;
 
   static bool led_on = false;
-  pinMode(PIN_STATUS_LED, OUTPUT);
 
-  const auto setLed = [](bool on) {
-#if BOARD_LED_ACTIVE_LOW
-    digitalWrite(PIN_STATUS_LED, on ? LOW : HIGH);
-#else
-    digitalWrite(PIN_STATUS_LED, on ? HIGH : LOW);
-#endif
-  };
-
+  // 板载 WS2812 RGB 状态灯：红=故障/锁定、蓝闪=泵阀工作、绿=空闲在线
   if (g_sys_status.state == IrrigationState::Fault || g_safety.isLocked()) {
-    setLed(true);
+    statusLedSet(0xFF0000);
     return;
   }
   if (g_sys_status.state == IrrigationState::Pumping ||
       g_sys_status.state == IrrigationState::Valving) {
     led_on = !led_on;
-    setLed(led_on);
+    statusLedSet(led_on ? 0x0000FF : 0x000000);
     return;
   }
-  setLed(false);
+  statusLedSet(0x00FF00);
 }
 
 void setup() {
   Serial.begin(115200);
   delay(500);
+  statusLedBegin();
 
   // 硬件看门狗：loop 卡死自动复位（safety-checklist §4）
   esp_task_wdt_init(10, true);

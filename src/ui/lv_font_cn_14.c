@@ -4,6 +4,7 @@
  * Opts: --no-compress --font NotoSansSC-Regular.otf -r 0x20-0x7E --symbols 盆浇水开关自动故障恢复返回干转超时限额今日泵阀下限上限水量正在停止清除灌溉中网络连接正常偏干偏湿无效空闲完成检查锁定未知度保护已， --size 14 --bpp 1 --format lvgl --force-fast-kern-format -o /Users/yanx/ESP32/AutoIrrigationSystem/AutoIrrigationSystem/src/ui/lv_font_cn_14.c
  ******************************************************************************/
 
+#if BOARD_HAS_LVGL
 #include "lvgl.h"
 
 #ifndef LV_FONT_CN_14
@@ -1188,4 +1189,5 @@ lv_font_t lv_font_cn_14 = {
 
 
 #endif /*#if LV_FONT_CN_14*/
+#endif /*BOARD_HAS_LVGL*/
 
