@@ -12,19 +12,112 @@
 #include "types/zone_config.h"
 
 namespace {
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C g_oled(U8G2_R0, U8X8_PIN_NONE);
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C g_oled(U8G2_R2, U8X8_PIN_NONE);
 
 bool g_ok = false;
 char g_note[24] = "待机";
 uint32_t g_note_until_ms = 0;
 
-const char *modeText(const ZoneConfig *configs, uint8_t zone_count) {
-  for (uint8_t i = 0; i < zone_count; ++i) {
-    if (configs[i].auto_enabled) {
-      return "自动";
-    }
+const char *feelText(const ZoneStatus &zone, const ZoneConfig &cfg) {
+  if (!zone.sensor_valid) {
+    return "未接";
   }
-  return "手动";
+  if (zone.moisture_pct < cfg.moisture_low) {
+    return "偏干";
+  }
+  if (zone.moisture_pct > cfg.moisture_high) {
+    return "偏湿";
+  }
+  return "正常";
+}
+
+bool formatAction(char *out, size_t cap, const SystemStatus &status) {
+  const int z = status.active_zone >= 0 ? status.active_zone : status.active_valve;
+  const int num = z + 1;
+  switch (status.state) {
+    case IrrigationState::Checking:
+      snprintf(out, cap, "正在检测");
+      return true;
+    case IrrigationState::Valving:
+    case IrrigationState::Pumping:
+      if (num > 0) {
+        snprintf(out, cap, "%d# 正在浇水作业", num);
+      } else {
+        snprintf(out, cap, "正在浇水作业");
+      }
+      return true;
+    case IrrigationState::Done:
+      if (num > 0) {
+        snprintf(out, cap, "%d# 浇水完成", num);
+      } else {
+        snprintf(out, cap, "浇水完成");
+      }
+      return true;
+    case IrrigationState::Fault:
+      snprintf(out, cap, "故障锁定");
+      return true;
+    default:
+      break;
+  }
+  if (status.purge_on) {
+    snprintf(out, cap, "正在排气");
+    return true;
+  }
+  if (status.pump_on && num > 0 && status.valve_on) {
+    snprintf(out, cap, "%d# 正在浇水作业", num);
+    return true;
+  }
+  if (status.pump_on) {
+    snprintf(out, cap, "水泵运行中");
+    return true;
+  }
+  if (status.valve_on && num > 0) {
+    snprintf(out, cap, "%d# 阀已打开", num);
+    return true;
+  }
+  return false;
+}
+
+void drawAction(const char *text) {
+  g_oled.drawUTF8(0, 28, text);
+}
+
+void drawZonePages(const ZoneStatus *zones, const ZoneConfig *configs, uint8_t zone_count) {
+  static uint8_t page = 0;
+  static uint32_t page_ms = 0;
+  static bool ready = false;
+  const uint32_t now = millis();
+  const uint8_t pages = zone_count == 0 ? 1 : static_cast<uint8_t>((zone_count + 3) / 4);
+  if (!ready) {
+    page_ms = now;
+    ready = true;
+  }
+  if (pages <= 1) {
+    page = 0;
+  } else if (now - page_ms >= 10000) {
+    page_ms = now;
+    page = static_cast<uint8_t>((page + 1) % pages);
+  }
+  if (page >= pages) {
+    page = 0;
+  }
+
+  const uint8_t start = page * 4;
+  for (uint8_t row = 0; row < 4; ++row) {
+    const uint8_t i = start + row;
+    if (i >= zone_count) {
+      break;
+    }
+    char line[28];
+    if (zones[i].sensor_valid) {
+      snprintf(line, sizeof(line), "%u# %s %u%% %s", static_cast<unsigned>(i + 1),
+               feelText(zones[i], configs[i]), zones[i].moisture_pct,
+               configs[i].auto_enabled ? "自动" : "手动");
+    } else {
+      snprintf(line, sizeof(line), "%u# 未接", static_cast<unsigned>(i + 1));
+    }
+    g_oled.drawUTF8(0, 15 + static_cast<int>(row) * 16, line);
+  }
 }
 }  // namespace
 
@@ -64,81 +157,15 @@ void status_oled_show(const SystemStatus &status, const ZoneStatus *zones,
   char line[28];
   g_oled.clearBuffer();
   g_oled.setFont(u8g2_font_wqy12_t_gb2312);
-
-  const char *st = "空闲";
-  switch (status.state) {
-    case IrrigationState::Valving:
-      st = "开阀";
-      break;
-    case IrrigationState::Pumping:
-      st = "浇水";
-      break;
-    case IrrigationState::Done:
-      st = "完成";
-      break;
-    case IrrigationState::Fault:
-      st = "故障";
-      break;
-    case IrrigationState::Checking:
-      st = "检测";
-      break;
-    default:
-      st = "空闲";
-      break;
-  }
   (void)state_text;
-  g_oled.drawUTF8(0, 12, st);
 
-  const char *valve = "关";
-  if (status.valve_on && status.active_valve >= 0) {
-    snprintf(line, sizeof(line), "泵%s 阀%u %s", status.pump_on ? "开" : "关",
-             static_cast<unsigned>(status.active_valve), modeText(configs, zone_count));
+  if (millis() < g_note_until_ms && g_note[0] != '\0') {
+    drawAction(g_note);
+  } else if (formatAction(line, sizeof(line), status)) {
+    drawAction(line);
   } else {
-    snprintf(line, sizeof(line), "泵%s 阀%s %s", status.pump_on ? "开" : "关", valve,
-             modeText(configs, zone_count));
+    drawZonePages(zones, configs, zone_count);
   }
-  g_oled.drawUTF8(0, 26, line);
-
-  const uint8_t n = zone_count > 4 ? 4 : zone_count;
-  char zline[28] = "";
-  size_t used = 0;
-  for (uint8_t i = 0; i < n && i < 2; ++i) {
-    char part[12];
-    if (zones[i].sensor_valid) {
-      snprintf(part, sizeof(part), "%u:%u%% ", i, zones[i].moisture_pct);
-    } else {
-      snprintf(part, sizeof(part), "%u:-- ", i);
-    }
-    const size_t len = strlen(part);
-    if (used + len < sizeof(zline)) {
-      memcpy(zline + used, part, len + 1);
-      used += len;
-    }
-  }
-  g_oled.drawUTF8(0, 40, zline);
-
-  zline[0] = '\0';
-  used = 0;
-  for (uint8_t i = 2; i < n; ++i) {
-    char part[12];
-    if (zones[i].sensor_valid) {
-      snprintf(part, sizeof(part), "%u:%u%% ", i, zones[i].moisture_pct);
-    } else {
-      snprintf(part, sizeof(part), "%u:-- ", i);
-    }
-    const size_t len = strlen(part);
-    if (used + len < sizeof(zline)) {
-      memcpy(zline + used, part, len + 1);
-      used += len;
-    }
-  }
-  if (zone_count > 4) {
-    g_oled.drawUTF8(90, 54, "...");
-  }
-  g_oled.drawUTF8(0, 54, zline);
-
-  const char *note = (millis() < g_note_until_ms) ? g_note : "待机";
-  g_oled.drawUTF8(0, 63, note);
   g_oled.sendBuffer();
 }
 
