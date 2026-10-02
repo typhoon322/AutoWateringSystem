@@ -725,14 +725,14 @@ void WebServerUi::startWiFi() {
 
 #if WIFI_HYBRID_MODE
   WiFi.mode(WIFI_AP_STA);
-  WiFi.setSleep(false);
+  WiFi.setSleep(true);  // S3 同时开 BLE 时必须开 modem sleep，否则 WiFi 启动直接 abort
   if (WIFI_AP_FALLBACK) {
     WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS);
     Serial.printf("AP: %s (hybrid)\n", WiFi.softAPIP().toString().c_str());
   }
 #else
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
+  WiFi.setSleep(true);  // S3 同时开 BLE 时必须开 modem sleep，否则 WiFi 启动直接 abort
 #endif
 
   if (ssid[0] != '\0') {

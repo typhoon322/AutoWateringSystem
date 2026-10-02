@@ -300,12 +300,16 @@ void startBle() {
 
 }  // namespace
 
+void ble_link_begin() {
+  if (g_inited) {
+    return;
+  }
+  startBle();
+}
+
 void ble_link_loop() {
   if (!g_inited) {
-    if (millis() < 1500) {
-      return;
-    }
-    startBle();
+    ble_link_begin();
   }
 
   if (g_cmd_pending) {

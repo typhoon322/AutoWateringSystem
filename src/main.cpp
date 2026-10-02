@@ -248,6 +248,8 @@ void setup() {
 #endif
   Serial.printf("WiFi: %s\n", g_sys_config.wifi_enabled ? "enabled" : "disabled");
   Serial.println(F("Ready. Type help."));
+  // WiFi 已启动后再开 BLE，S3 的共存层会在 coex_core_enable 里直接 abort。
+  ble_link_begin();
 }
 
 void loop() {

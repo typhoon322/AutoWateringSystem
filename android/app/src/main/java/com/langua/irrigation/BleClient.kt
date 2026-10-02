@@ -10,10 +10,11 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.location.LocationManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import java.util.UUID
@@ -34,6 +35,7 @@ class BleClient(
     private val chunks = HashMap<Int, ByteArray>()
     private var expected = 0
     private var scanning = false
+    private var seen = 0
     private val writes = ArrayDeque<String>()
     private var writing = false
 
@@ -46,19 +48,35 @@ class BleClient(
             return
         }
         stopScan()
+        if (!locationReady()) {
+            onLink("请打开系统定位。这台手机不打开定位就扫不到蓝牙设备")
+            return
+        }
         onLink("正在搜索 Langua…")
-        val filter = ScanFilter.Builder().setDeviceName(Protocol.DEVICE_NAME).build()
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
         scanning = true
-        scanner.startScan(listOf(filter), settings, scanCb)
+        seen = 0
+        scanner.startScan(emptyList(), settings, scanCb)
         main.postDelayed({
             if (scanning) {
+                val n = seen
                 stopScan()
-                onLink("没找到设备。确认灌溉器已上电，并靠近手机")
+                onLink(
+                    if (n == 0) {
+                        "没扫到任何蓝牙设备。请打开系统定位，并允许本应用使用位置"
+                    } else {
+                        "附近有 $n 个蓝牙设备，没有 Langua。确认灌溉器已上电"
+                    }
+                )
             }
         }, 12000)
+    }
+
+    private fun locationReady(): Boolean {
+        val lm = app.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lm.isLocationEnabled else true
     }
 
     fun disconnect() {
@@ -89,6 +107,14 @@ class BleClient(
         }
     }
 
+    private fun isLangua(result: ScanResult): Boolean {
+        val record = result.scanRecord
+        val name = result.device.name ?: record?.deviceName
+        if (name == Protocol.DEVICE_NAME) return true
+        val uuids = record?.serviceUuids ?: return false
+        return uuids.any { it.uuid.toString().equals(Protocol.SERVICE, ignoreCase = true) }
+    }
+
     @SuppressLint("MissingPermission")
     private fun stopScan() {
         if (!scanning) return
@@ -99,6 +125,8 @@ class BleClient(
     private val scanCb = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             if (!scanning) return
+            seen++
+            if (!isLangua(result)) return
             stopScan()
             connect(result.device)
         }
