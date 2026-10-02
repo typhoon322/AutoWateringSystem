@@ -9,6 +9,7 @@ data class ZoneUi(
     val auto: Boolean,
     val valid: Boolean,
     val volume: Int,
+    val adc: Int,
 )
 
 data class DeviceUi(
@@ -72,6 +73,7 @@ object Protocol {
                     auto = zf and 0x01 != 0,
                     valid = zf and 0x02 != 0,
                     volume = u16(payload, o + 4),
+                    adc = u16(payload, o + 6),
                 )
             )
         }

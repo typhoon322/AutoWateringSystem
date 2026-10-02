@@ -159,6 +159,7 @@ private fun HomeScreen(
                 Text("连接后可查看各盆湿度、浇水、开关自动模式。设备蓝牙名是 Langua。", color = Color(0xFF8B949E))
             } else {
                 StatusCard(device, onCommand)
+                ServiceCard(device, onCommand)
                 device.zones.forEach { zone ->
                     ZoneCard(
                         zone,
@@ -199,6 +200,24 @@ private fun StatusCard(device: DeviceUi, onCommand: (String) -> Unit) {
 }
 
 @Composable
+private fun ServiceCard(device: DeviceUi, onCommand: (String) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("现场调试", color = Color.White)
+            Text("直接开关泵和阀，不经过浇水保护。标定会先采样再写入当前 ADC。", color = Color(0xFF8B949E))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { onCommand("sample") }) { Text("采样") }
+                Button(
+                    onClick = { onCommand(if (device.pump) "pump 0" else "pump 1") },
+                    colors = ButtonDefaults.buttonColors(containerColor = if (device.pump) Warn else Accent),
+                ) { Text(if (device.pump) "关泵" else "开泵") }
+                Button(onClick = { onCommand("valve off") }) { Text("阀全关") }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ZoneCard(
     zone: ZoneUi,
     volume: String,
@@ -222,7 +241,7 @@ private fun ZoneCard(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text(zone.name, color = Color.White)
-                    Text(label, color = tone)
+                    Text("$label · ADC ${zone.adc}", color = tone)
                 }
                 Text("${if (zone.valid) zone.pct.toString() else "--"}%", color = tone, style = MaterialTheme.typography.headlineSmall)
             }
@@ -245,6 +264,11 @@ private fun ZoneCard(
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("浇水") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { onCommand("cal ${zone.index} dry") }) { Text("标定干") }
+                Button(onClick = { onCommand("cal ${zone.index} wet") }) { Text("标定湿") }
+                Button(onClick = { onCommand("valve ${zone.index}") }) { Text("开阀") }
+            }
         }
     }
 }

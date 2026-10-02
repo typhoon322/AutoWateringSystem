@@ -155,6 +155,7 @@ void handleCommand(char *line) {
       return;
     }
     const bool wet = strstr(line, "wet") != nullptr;
+    g_zone_manager.sampleAll();
     if (wet) {
       g_zone_configs[a].cal_wet = g_zone_status[a].moisture_adc;
     } else {
