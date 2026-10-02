@@ -366,7 +366,7 @@ GET 返回连接状态；POST 设置 `ssid`, `password`, `enabled`。
 | 特征 | UUID 尾 | 方向 | 内容 |
 |------|---------|------|------|
 | 状态 | …5502 | Notify | `A5` + 包序号 + 总包数 + 载荷切片（每片 17 字节） |
-| 命令 | …5503 | Write | ASCII：`water <z> <ml>`、`auto <z> 0\|1`、`vol <z> <ml>`、`estop`、`stop`、`sample`、`pump 0\|1`、`valve <z>\|off`、`cal <z> dry\|wet` |
+| 命令 | …5503 | Write | ASCII：`water <z> <ml>`、`auto <z> 0\|1`、`vol <z> <ml>`、`th <z> <low> <high>`、`estop`、`stop`、`sample`、`pump 0\|1`、`valve <z>\|off`、`cal <z> dry\|wet` |
 | 应答 | …5504 | Notify | `OK` 或 `ERR ...` |
 
 状态载荷（小端）：版本、运行状态、安全状态、标志（泵/阀/锁定）、当前阀、队列、盆数、今日 ml、本次 ml；每盆 16 字节（湿度%、上下限、自动/有效标志、水量、ADC、名称最多 7 字节）。

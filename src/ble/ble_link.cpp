@@ -124,6 +124,18 @@ void handleCommand(char *line) {
     reply("OK");
     return;
   }
+  int c = 0;
+  if (sscanf(line, "th %d %d %d", &a, &b, &c) == 3) {
+    if (!zoneOk(a) || b < 0 || c < 0 || b > 100 || c > 100 || b >= c) {
+      reply("ERR zone");
+      return;
+    }
+    g_zone_configs[a].moisture_low = static_cast<uint8_t>(b);
+    g_zone_configs[a].moisture_high = static_cast<uint8_t>(c);
+    saveSettings();
+    reply("OK");
+    return;
+  }
   if (sscanf(line, "pump %d", &a) == 1) {
     g_pump.set(a != 0);
     reply("OK");

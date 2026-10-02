@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -162,16 +163,38 @@ private fun HomeScreen(
             if (device == null) {
                 Text("连接后可查看各盆湿度、浇水、开关自动模式。设备蓝牙名是 Langua。", color = Color(0xFF8B949E))
             } else {
+                var home by remember { mutableStateOf(true) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { home = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = if (home) Accent else Color(0xFF21262D)),
+                    ) { Text("首页", color = if (home) Color(0xFF0F1419) else Color.White) }
+                    Button(
+                        onClick = { home = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = if (!home) Accent else Color(0xFF21262D)),
+                    ) { Text("调试", color = if (!home) Color(0xFF0F1419) else Color.White) }
+                }
                 StatusCard(device, onCommand)
-                ServiceCard(device, onCommand)
-                device.zones.forEach { zone ->
-                    ZoneCard(
-                        zone,
-                        valveOpen = device.valveOn && device.activeValve == zone.index,
-                        volumes[zone.index] ?: zone.volume.toString(),
-                        onVolume = { volumes[zone.index] = it },
-                        onCommand = onCommand,
-                    )
+                if (home) {
+                    device.zones.forEach { zone ->
+                        key(zone.index) {
+                            HomeZoneCard(
+                            zone,
+                            volumes[zone.index] ?: zone.volume.toString(),
+                            onVolume = { volumes[zone.index] = it },
+                            onCommand = onCommand,
+                            )
+                        }
+                    }
+                } else {
+                    ServiceCard(device, onCommand)
+                    device.zones.forEach { zone ->
+                        DebugZoneCard(
+                            zone,
+                            valveOpen = device.valveOn && device.activeValve == zone.index,
+                            onCommand = onCommand,
+                        )
+                    }
                 }
             }
             if (reply.isNotBlank()) Text(reply, color = Color(0xFF8B949E))
@@ -222,31 +245,23 @@ private fun ServiceCard(device: DeviceUi, onCommand: (String) -> Unit) {
 }
 
 @Composable
-private fun ZoneCard(
+private fun HomeZoneCard(
     zone: ZoneUi,
-    valveOpen: Boolean,
     volume: String,
     onVolume: (String) -> Unit,
     onCommand: (String) -> Unit,
 ) {
-    val tone = when {
-        !zone.valid -> Color(0xFF8B949E)
-        zone.pct < zone.low -> Warn
-        zone.pct > zone.high -> Color(0xFF388BFD)
-        else -> Accent
-    }
-    val label = when {
-        !zone.valid -> "未接"
-        zone.pct < zone.low -> "偏干"
-        zone.pct > zone.high -> "偏湿"
-        else -> "正常"
-    }
+    val tone = zoneTone(zone)
+    val lows = remember { mutableStateMapOf<Int, String>() }
+    val highs = remember { mutableStateMapOf<Int, String>() }
+    val low = lows[zone.index] ?: zone.low.toString()
+    val high = highs[zone.index] ?: zone.high.toString()
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text(zone.name, color = Color.White)
-                    Text("$label · ADC ${zone.adc}", color = tone)
+                    Text(zone.name, color = Color.White, style = MaterialTheme.typography.titleMedium)
+                    Text(zoneLabel(zone), color = tone)
                 }
                 Text("${if (zone.valid) zone.pct.toString() else "--"}%", color = tone, style = MaterialTheme.typography.headlineSmall)
             }
@@ -254,6 +269,32 @@ private fun ZoneCard(
                 Text("自动浇水", color = Color.White)
                 Switch(checked = zone.auto, onCheckedChange = { onCommand("auto ${zone.index} ${if (it) 1 else 0}") })
             }
+            Text("低于下限自动浇，高于上限视为偏湿", color = Color(0xFF8B949E))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = low,
+                    onValueChange = { if (it.length <= 3 && it.all(Char::isDigit)) lows[zone.index] = it },
+                    label = { Text("下限 %") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = high,
+                    onValueChange = { if (it.length <= 3 && it.all(Char::isDigit)) highs[zone.index] = it },
+                    label = { Text("上限 %") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Button(
+                onClick = {
+                    val lo = low.toIntOrNull() ?: zone.low
+                    val hi = high.toIntOrNull() ?: zone.high
+                    onCommand("th ${zone.index} $lo $hi")
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D)),
+            ) { Text("保存阈值") }
             OutlinedTextField(
                 value = volume,
                 onValueChange = { if (it.length <= 4 && it.all(Char::isDigit)) onVolume(it) },
@@ -269,6 +310,19 @@ private fun ZoneCard(
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("浇水") }
+        }
+    }
+}
+
+@Composable
+private fun DebugZoneCard(
+    zone: ZoneUi,
+    valveOpen: Boolean,
+    onCommand: (String) -> Unit,
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("${zone.name} · ADC ${zone.adc}", color = Color.White)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onCommand("cal ${zone.index} dry") }) { Text("标定干") }
                 Button(onClick = { onCommand("cal ${zone.index} wet") }) { Text("标定湿") }
@@ -279,4 +333,18 @@ private fun ZoneCard(
             }
         }
     }
+}
+
+private fun zoneTone(zone: ZoneUi): Color = when {
+    !zone.valid -> Color(0xFF8B949E)
+    zone.pct < zone.low -> Warn
+    zone.pct > zone.high -> Color(0xFF388BFD)
+    else -> Accent
+}
+
+private fun zoneLabel(zone: ZoneUi): String = when {
+    !zone.valid -> "未接"
+    zone.pct < zone.low -> "偏干"
+    zone.pct > zone.high -> "偏湿"
+    else -> "正常"
 }
