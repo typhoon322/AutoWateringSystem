@@ -13,16 +13,15 @@
 
 ```bash
 cd ~/ESP32/AutoIrrigationSystem/AutoIrrigationSystem
-~/.platformio/penv/bin/pio run -e esp32-c3-oled-test -t upload
+~/.platformio/penv/bin/pio run -e esp32-s3-irrigation -t upload
 ```
 
 ## 2. 架构概要（v2.1）
 
-- **单泵 + 多电磁阀**（1–10 区），共用 **YF-S201 流量计**
+- **单泵 + 多电磁阀**（1–10 区），共用流量计
 - **I2C 扩展子板**：3× ADS1115（湿度）+ 1× PCA9555（阀）
-- **前期验证**：01Space ESP32-C3 0.42" OLED（`esp32-c3-oled-test`）
-- **量产目标**：ESP32-S3（`esp32-s3-irrigation`），扩展板接线不变
-- **交互**：串口 CLI + 内嵌 Web UI + 板载 OLED
+- **主控**：ESP32-S3（`esp32-s3-irrigation`），I2C GPIO8/9
+- **交互**：0.96" SSD1306 状态屏 + 动作键/急停键 + 串口 CLI + Web UI + 蓝牙安卓 App
 
 浇水顺序：**开阀 → 500 ms → 开泵 → 定量停泵 → 关阀**。
 
@@ -30,50 +29,43 @@ cd ~/ESP32/AutoIrrigationSystem/AutoIrrigationSystem
 
 | 阶段 | 状态 |
 |------|------|
-| C3 0.42 OLED 裸板（仅 USB） | ✅ 已烧录验证 |
-| 板载 OLED 显示 | ✅ U8g2 72×40 |
-| WiFi 混合模式 AP+STA | ✅ 已连 `OneMore`，AP 同时开 |
-| Web UI | ✅ `192.168.4.1` 或局域网 IP（2026-08-18 已增强联调测试页） |
-| S3 量产板串口/Web 联调 | ✅ 固件跑通（Serial=UART0、WiFi 连 `ChinaUnicom-8DFA-2.4`、Web 192.168.0.112） |
+| S3 串口/Web 联调 | ✅ 固件跑通（Serial=UART0、WiFi 连 `ChinaUnicom-8DFA-2.4`、Web 192.168.0.112） |
 | PCA9555 阀扩展板 | ✅ I2C 在线（0x20）；驱动逻辑已改"高阻关断+0V 吸合" |
 | 泵/阀继电器 | ⏳ 待换 **3.3V 低电平触发**模块（5V/12V 线圈模块与 3.3V MCU 不兼容，见 [bom.md 红线](bom.md)） |
 | ADS1115 湿度板 / 流量计 | ⏳ 待接线 |
+| S3 状态屏 + 两个自复键 | 🔧 固件已接（SSD1306 128×64 @ GPIO8/9；GPIO6 动作、GPIO7 急停），待装机点亮 |
+| 安卓 App（BLE 替代家庭页） | 🔧 固件广播名 `Langua`，工程在 `android/`，待手机联调 |
 
-### C3 板关键引脚（`include/boards/board_c3_oled.h`）
+### S3 关键引脚（`include/boards/board_s3.h`）
 
 | 功能 | GPIO | 备注 |
 |------|------|------|
-| I2C SDA / SCL | **5 / 6** | 板载 OLED + 扩展板共用；**勿用排针 8/9** |
-| 水泵继电器 | 3 | |
-| 流量计 | **7** | 勿接 GPIO5（OLED SDA） |
-| 状态 LED | 8 | 低电平亮 |
+| I2C SDA / SCL | **8 / 9** | 扩展板 + 0.96" SSD1306 |
+| 水泵继电器 | 4 | 低电平触发 |
+| 流量计 | 5 | |
+| 动作键 / 急停键 | 6 / 7 | 自复，另一端接 GND |
+| 状态 LED | 48 | |
 
-## 4. 已验证行为（裸板）
+## 4. 已验证行为
 
 串口典型输出：
 
 ```
 AutoIrrigation v2.1
-Board: ESP32-C3-0.42-OLED
-OLED: U8g2 72x40 initialized
-WARN: no ADS1115 detected on I2C
-WARN: PCA9555 valve expander not found
+Board: ESP32-S3-Irrigation
 WiFi: enabled
 AP: 192.168.4.1 (hybrid)
-WiFi connecting to OneMore...
 WiFi connected: 192.168.x.x
 ```
 
-OLED 四行：状态 / Z0·Z1 湿度 / 泵阀 / 日流量·AP 指示。
+状态屏：运行状态、泵/阀、各盆湿度、最近一次按键说明。
 
 ## 5. 重要实现细节（避免重复踩坑）
 
-### OLED
+### 状态屏
 
-- 驱动：**U8g2** `U8G2_SSD1306_72X40_ER_F_HW_I2C`（与 01Space 官方例程一致）
-- `display_driver.cpp` 必须在 `#if BOARD_HAS_OLED` **之前** `#include "config.h"`，否则整段驱动被编译跳过
-- 初始化顺序：`irrigationI2cBegin()` → **先 OLED** → 再探测 ADS1115 / PCA9555
-- 不要用 Adafruit SSD1306 128×64 + 偏移；不要用带 pin 参数的 U8g2 构造（曾导致卡死）
+- 驱动：**U8g2** `U8G2_SSD1306_128X64_NONAME_F_HW_I2C`，地址 0x3C，I2C 100 kHz
+- 初始化在 ADS/PCA 之后，失败会重试
 
 ### WiFi（与 TempControl 对齐）
 
@@ -89,15 +81,6 @@ OLED 四行：状态 / Z0·Z1 湿度 / 泵阀 / 日流量·AP 指示。
 
 若 NVS 里曾存 `wifi off`：串口 `wifi on` + `save`，或清 NVS 后重启。
 
-### USB 串口
-
-`platformio.ini` 中 C3 环境需：
-
-```ini
--DARDUINO_USB_MODE=1
--DARDUINO_USB_CDC_ON_BOOT=1
-```
-
 ## 6. 未提交改动（截至 2026-08-02）
 
 本地 **master** 相对 `origin/master` 有未 push 工作区修改，主要包括：
@@ -107,7 +90,7 @@ OLED 四行：状态 / Z0·Z1 湿度 / 泵阀 / 日流量·AP 指示。
 | OLED 驱动 | `src/display/`（新） |
 | WiFi 混合模式 | `include/config.h`, `src/web/web_server.*`, `src/storage/settings_store.cpp` |
 | 启动顺序 | `src/main.cpp` |
-| 文档 | `README.md`, `docs/development.md`, `docs/user-manual.md`, `docs/board-esp32-c3-042-oled.md`, `docs/DOC_MAP.md` |
+| 文档 | `README.md`, `docs/development.md`, `docs/user-manual.md`, `docs/DOC_MAP.md` |
 | 规则 | `.cursor/rules/*.mdc` |
 
 远端最新 commit：`30debe8`（USB CDC）。**OLED + WiFi 混合模式尚未 commit/push。**
@@ -115,14 +98,15 @@ OLED 四行：状态 / Z0·Z1 湿度 / 泵阀 / 日流量·AP 指示。
 ## 7. 待办（建议顺序）
 
 1. [ ] 提交并 push OLED + WiFi 相关改动
-2. [ ] 焊接/接入 I2C 扩展子板（SDA/SCL → GPIO5/6）
+2. [ ] 焊接/接入 I2C 扩展子板（SDA/SCL → GPIO8/9）
 3. [ ] 接 1 路湿度 + 泵 + 阀 + 流量计，单区联调
 4. [ ] 标定 `pulses_per_liter`、各 `volume_ml`（管长不等时逐区标）
 5. [ ] 扩展至 2+ 区，验证队列灌溉
-6. [ ] 量产板 ESP32-S3 同扩展板冒烟测试
+6. [x] 主控定为 ESP32-S3（`esp32-s3-irrigation`）
 7. [ ] **整合 PCB 设计**（量产整合板：S3 模块 + 3×ADS1115 + PCA9555 + 泵/阀驱动 + 电源一体，KiCad 出图打样；输入见联调定型的极性/电平/地址决策）
 8. [x] **Web UI 家庭模式**（`/` 家庭首页 + `/dev` 调试页 + 浇水历史 NVS 持久化 + 浇水时间窗口；代码完成待硬件验证）
-9. [x] **显示屏接入 v2**（SH1106 128×64 I2C + LVGL 单色 3 屏中文 + EC11/KEY0/KEY1；代码完成待硬件点亮实测）
+9. [x] **显示屏接入 v2**（SH1106 128×64 I2C + LVGL；代码在，`BOARD_HAS_LVGL=0` 未编入当前固件）
+9b. [x] **0.96" SSD1306 状态屏 + 动作键/急停键**（2026-10-02，代码完成，待硬件点亮）
 10. [ ] **固件看门狗 WDT**（esp_task_wdt，卡死自动复位；见 [safety-checklist.md](safety-checklist.md) §4）
 11. [ ] **防水盒装机**（按 [safety-checklist.md](safety-checklist.md) 施工：保险丝/续流二极管/格兰头/三防漆/透气阀/温升测试）
 
@@ -133,7 +117,6 @@ OLED 四行：状态 / Z0·Z1 湿度 / 泵阀 / 日流量·AP 指示。
 | [system-design.md](system-design.md) | 架构、状态机、安全 |
 | [development.md](development.md) | 编译、CLI、API |
 | [user-manual.md](user-manual.md) | 组装、配网、操作 |
-| [board-esp32-c3-042-oled.md](board-esp32-c3-042-oled.md) | C3 小板引脚与 OLED |
 | [wiring.md](wiring.md) / [bom.md](bom.md) | 接线与采购 |
 | [DOC_MAP.md](DOC_MAP.md) | 改代码时需同步的文档 |
 
@@ -142,7 +125,7 @@ OLED 四行：状态 / Z0·Z1 湿度 / 泵阀 / 日流量·AP 指示。
 复制以下内容到新对话即可快速接续：
 
 ```
-项目：AutoIrrigation v2.1 自动灌溉（ESP32-C3 0.42 OLED 验证中）
+项目：AutoIrrigation v2.1 自动灌溉（ESP32-S3）
 路径：~/ESP32/AutoIrrigationSystem/AutoIrrigationSystem
 请先读 docs/project-status.md，再继续：<你的任务>
 ```

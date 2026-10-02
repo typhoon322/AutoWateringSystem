@@ -3,12 +3,11 @@
 #include <stdint.h>
 
 /**
- * Shared I2C expander layout — identical on C3-OLED dev board and S3 production.
- * Swap MCU / board_*.h only; daughterboard wiring stays the same.
+ * I2C expander layout for the ESP32-S3 board.
  *
  * Moisture: 3× ADS1115 @ 0x48/0x49/0x4A → 10 single-ended channels
  * Valves:   1× PCA9555 @ 0x20 → outputs P0–P9 (one NC valve relay each)
- * OLED:     0x3C on same I2C bus (0.42" SSD1306 on C3 dev board, SDA=5 SCL=6)
+ * OLED:     0x3C on the same I2C bus (0.96" SSD1306, SDA=8 SCL=9)
  */
 
 #define IRRIGATION_USE_I2C_EXPANDERS 1

@@ -10,20 +10,20 @@
 | ADS1115 #1 | 0x49 | 湿度 AIN0–3 → 盆 4–7 |
 | ADS1115 #2 | 0x4A | 湿度 AIN0–1 → 盆 8–9 |
 | PCA9555 | 0x20 | 阀继电器 P0–P9 → 盆 0–9 |
-| OLED（仅 C3 测试板） | 0x3C | 与扩展板共用 I2C 总线 |
+| OLED 状态屏 | 0x3C | 0.96" SSD1306，与扩展板共用 I2C |
 
 布局定义见 [`include/boards/board_io_map.h`](../include/boards/board_io_map.h)。
 
-## MCU 直连（因板型而异）
+## MCU 直连（`board_s3.h`）
 
-| 功能 | C3 0.42" OLED (`board_c3_oled.h`) | S3 量产 (`board_s3.h`) |
-|------|-----------------------------------|------------------------|
-| I2C SDA / SCL | GPIO **5 / 6**（与板载 OLED 共用） | GPIO8 / GPIO9 |
-| 水泵继电器 | GPIO3 | GPIO4 |
-| 流量计脉冲 | GPIO **7** | GPIO5 |
-| 状态 LED | GPIO8（低电平亮） | GPIO48 |
-
-> C3 0.42 板详情见 [board-esp32-c3-042-oled.md](board-esp32-c3-042-oled.md)。**GPIO5/6 为 I2C，不可接流量计。**
+| 功能 | GPIO |
+|------|------|
+| I2C SDA / SCL | 8 / 9（扩展板 + 0.96" SSD1306） |
+| 水泵继电器 | 4 |
+| 流量计脉冲 | 5 |
+| 状态 LED | 48 |
+| 动作键（自复） | 6（短按检测浇水，长按切换自动/手动） |
+| 急停键（自复） | 7（按下即急停） |
 
 ## 电容式土壤湿度
 
@@ -97,12 +97,7 @@ USB ──→ ESP32（开发）
 ## 烧录
 
 ```bash
-# 前期验证（C3 + OLED）
-pio run -e esp32-c3-oled-test -t upload
-
-# 量产（S3，扩展板不变）
 pio run -e esp32-s3-irrigation -t upload
-
 pio device monitor -b 115200
 ```
 

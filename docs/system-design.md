@@ -6,17 +6,15 @@
 
 家用多盆植物需要定时、定量补水。纯湿度阈值控制难以保证每次浇水量一致；加入流量计后可实现 **mL 级定量浇水**，避免过浇或欠浇。
 
-本系统采用 **I2C 扩展子板**（3× ADS1115 + PCA9555），支持 **1–10 个灌溉分区**；前期用 **ESP32-C3 + OLED** 验证，量产 **换 ESP32-S3** 即可（扩展板接线不变）。通过 **WiFi + 本地 Web 界面** 监控与配置，离线亦可独立运行（串口 CLI + RGB LED 状态指示）。
+本系统采用 **I2C 扩展子板**（3× ADS1115 + PCA9555），支持 **1–10 个灌溉分区**，主控是 **ESP32-S3**。通过 **WiFi + 本地 Web 界面** 和 **蓝牙安卓 App** 监控与配置，离线亦可独立运行（串口 CLI + 状态屏 + 按键）。
 
 ### 1.0.1 硬件平台策略
 
 | 项目 | 约定 |
 |------|------|
 | **架构** | **I2C 扩展子板**（3× ADS1115 + 1× PCA9555），最多 **10 盆** |
-| **前期验证** | 01Space ESP32-C3 0.42" OLED（`BOARD_C3_OLED_TEST`，I2C GPIO5/6） |
-| **量产** | ESP32-S3（`BOARD_S3_IRRIGATION`，I2C GPIO8/9） |
-| **换板策略** | **扩展子板接线不变，只换 MCU 模块** |
-| **代码入口** | `include/platform.h` → `board_c3_oled.h` / `board_s3.h` + 共用 `board_io_map.h` |
+| **主控** | ESP32-S3（`BOARD_S3_IRRIGATION`，I2C GPIO8/9） |
+| **代码入口** | `include/platform.h` → `board_s3.h` + `board_io_map.h` |
 
 ### 1.0.2 多盆 vs 多 MCU
 
@@ -30,8 +28,8 @@
 
 | 方案 | MCU | 湿度探头 | 估算 |
 |------|-----|----------|------|
-| 本设计 | 1 × C3 | 2 | ~¥25 + 2×¥5 |
-| 每盆一 MCU | 2 × C3 | 2 | ~¥50 + 2×¥5 |
+| 本设计 | 1 × ESP32-S3 | 2 | ~¥40 + 2×¥5 |
+| 每盆一 MCU | 2 × ESP32-S3 | 2 | ~¥80 + 2×¥5 |
 
 固件中 `MAX_ZONES=10`、`ACTIVE_ZONES=2`（见 `include/config.h`），分区数据结构已支持 10 路。
 
@@ -78,7 +76,7 @@
 
 ```mermaid
 flowchart TB
-    subgraph mcu [MCU_C3_or_S3]
+    subgraph mcu [ESP32_S3]
         I2C[I2C_Bus]
         GPIO[GPIO]
         WiFiMod[WiFi]
@@ -160,16 +158,17 @@ flowchart TB
 
 ### 3.3 引脚与 I2C 分配
 
-**MCU 直连**（因板型而异，见 `board_c3_oled.h` / `board_s3.h`）：
+**MCU 直连**（`board_s3.h`）：
 
-| 功能 | C3 0.42" OLED | S3 量产 |
-|------|---------------|---------|
-| I2C SDA / SCL | GPIO **5 / 6** | GPIO8 / GPIO9 |
-| 水泵继电器 | GPIO3 | GPIO4 |
-| 流量计 | GPIO **7** | GPIO5 |
-| 状态 LED | GPIO8（低电平亮） | GPIO48 |
+| 功能 | GPIO |
+|------|------|
+| I2C SDA / SCL | 8 / 9 |
+| 水泵继电器 | 4 |
+| 流量计 | 5 |
+| 状态 LED | 48 |
+| 动作键 / 急停键 | 6 / 7 |
 
-**I2C 扩展板**（两板相同，见 `board_io_map.h`）：
+**I2C 扩展板**（见 `board_io_map.h`）：
 
 | 器件 | 地址 | 映射 |
 |------|------|------|

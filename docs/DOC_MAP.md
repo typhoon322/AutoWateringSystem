@@ -15,8 +15,7 @@
 |----------|-------------|----------|
 | `include/platform.h` | system-design, development, README | MCU/板型策略 |
 | `include/boards/board_io_map.h` | system-design, wiring, bom, development | I2C 地址、通道/位映射 |
-| `include/boards/board_c3_oled.h` | board-esp32-c3-042-oled, system-design, wiring, development, bom, README |
-| `include/boards/board_s3.h` | system-design, wiring, development, README, bom | S3 量产 MCU 引脚 |
+| `include/boards/board_s3.h` | system-design, wiring, development, README, bom | ESP32-S3 引脚 |
 | `include/config.h` | system-design, development, user-manual | 默认值、宏常量 |
 | `include/types/zone_config.h` | system-design, development | 数据结构、字段 |
 | `src/bus/i2c_bus.*` | development, wiring | I2C 初始化 |
@@ -30,9 +29,9 @@
 | `src/control/irrigation_controller.*` | system-design, development, user-manual | 状态机、浇水模式 |
 | `src/safety/safety_monitor.*` | system-design, user-manual | 安全策略、故障码 |
 | `src/storage/settings_store.*` | development | NVS 键名 |
-| `src/web/web_server.*` | development, user-manual | Web API、界面操作 |
+| `src/ble/ble_link.*` | development, user-manual | BLE 协议、安卓 App 替代 Web 家庭页 |
 | `src/cli/serial_cli.*` | development, user-manual | CLI 命令 |
-| `src/display/display_driver.*` | board-esp32-c3-042-oled, user-manual | OLED 状态页 |
+| `src/display/display_driver.*` | user-manual | OLED 状态页 |
 | `src/main.cpp` | development | 启动流程、采样周期 |
 | `platformio.ini` | development, README, user-manual | env 名称、依赖库 |
 | `docs/project-status.md` | — | 项目里程碑、上下文摘要（换目录/新 Chat 用） |
@@ -50,7 +49,6 @@
 | user-manual | `docs/user-manual.md` |
 | wiring | `docs/wiring.md` |
 | bom | `docs/bom.md` |
-| board-c3 | `docs/board-esp32-c3-042-oled.md` |
 | project-status | `docs/project-status.md` |
 | README | `README.md` |
 
@@ -58,7 +56,7 @@
 
 | 变更类型 | 至少更新 |
 |----------|----------|
-| 引脚 / 接线 | wiring, system-design, board_io_map, board_c3_oled / board_s3 |
+| 引脚 / 接线 | wiring, system-design, board_io_map, board_s3 |
 | I2C 扩展布局 | board_io_map, bom, wiring, system-design |
 | 新增 API / CLI | development, user-manual（若用户可见） |
 | 安全逻辑 | system-design, user-manual 故障表 |
@@ -81,4 +79,6 @@
 | 2026-08-22 | 显示屏接入：ST7789+LVGL 3 屏中文界面（主界面/浇水/故障）、中文字库、引脚宏集中 board_s3.h |
 | 2026-08-22 | 显示屏 v2：换 SH1106 128×64 I2C（共用总线 0x3C、LVGL 单色 1bpp、EC11+KEY0/KEY1），ST7789 方案作废 |
 | 2026-08-22 | 安全施工清单（docs/safety-checklist.md）：续流二极管/保险丝/防水盒/三防漆/看门狗/接线红线 |
-| 2026-08-22 | 开机自检：I2C 清单 + 屏幕摘要 + Web/CLI 写操作锁定（只读/急停豁免） |
+| 2026-10-02 | S3 状态屏改为 0.96" SSD1306 128×64；GPIO6 短按检测浇水，GPIO7 急停 |
+| 2026-10-03 | BLE 外设（广播名 Langua）+ 安卓 App `android/` |
+| 2026-10-03 | 停用 ESP32-C3 验证环境，固件与文档只保留 ESP32-S3 |

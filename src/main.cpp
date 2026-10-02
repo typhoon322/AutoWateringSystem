@@ -17,6 +17,7 @@
 #include "storage/irrigation_history.h"
 #include "storage/settings_store.h"
 #include "web/web_server.h"
+#include "ble/ble_link.h"
 #include "led/status_led.h"
 
 #if BOARD_HAS_OLED
@@ -26,6 +27,11 @@
 #if BOARD_HAS_LVGL
 #include "ui/lvgl_port.h"
 #include "ui/app_ui.h"
+#endif
+
+#if BOARD_HAS_STATUS_OLED
+#include "ui/panel_buttons.h"
+#include "ui/status_oled.h"
 #endif
 
 #include <time.h>
@@ -74,7 +80,7 @@ uint32_t last_sample_ms = 0;
 uint32_t last_status_ms = 0;
 uint32_t last_tick_ms = 0;
 uint32_t last_led_ms = 0;
-#if BOARD_HAS_OLED
+#if BOARD_HAS_OLED || BOARD_HAS_STATUS_OLED
 uint32_t last_display_ms = 0;
 #endif
 
@@ -217,6 +223,15 @@ void setup() {
   }
 #endif
 
+#if BOARD_HAS_STATUS_OLED
+  if (status_oled_begin()) {
+    Serial.println(F("OLED: SSD1306 128x64 initialized"));
+  } else {
+    Serial.println(F("WARN: status OLED init failed"));
+  }
+  panel_buttons_begin();
+#endif
+
   configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
 
   Serial.printf("Zones: %u (max %u valves, I2C expanders)\n", g_sys_config.zone_count,
@@ -242,6 +257,7 @@ void loop() {
 
   g_cli.poll();
   g_web.loop();
+  ble_link_loop();
 
   if (now - last_sample_ms >= SAMPLE_INTERVAL_MS) {
     last_sample_ms = now;
@@ -265,6 +281,15 @@ void loop() {
     last_status_ms = now;
     g_cli.printStatus();
   }
+
+#if BOARD_HAS_STATUS_OLED
+  panel_buttons_poll();
+  if (now - last_display_ms >= DISPLAY_INTERVAL_MS) {
+    last_display_ms = now;
+    status_oled_show(g_sys_status, g_zone_status, g_zone_configs, g_sys_config.zone_count,
+                     g_controller.stateText());
+  }
+#endif
 
 #if BOARD_HAS_OLED
   if (now - last_display_ms >= DISPLAY_INTERVAL_MS) {

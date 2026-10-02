@@ -21,14 +21,19 @@
 
 #define VALVE_ACTIVE_HIGH 0  // 低电平触发（同泵继电器，见上）
 
-// ── OLED 屏（SH1106 128×64，I2C 共用 GPIO8/9，地址 0x3C）──
-//   模块 IIC_SCL→PIN_I2C_SCL(9)、IIC_SDA→PIN_I2C_SDA(8)、3V3/GND 供电
-//   OLED_I2C_ADDR 0x3C 已在 boards/board_io_map.h 定义，此处不重复
-// ── 编码器/按键组（模块 TRIM_A/TRIM_B/KEY0/KEY1，线序用户自调）──
-#define PIN_ENC_A    6    // TRIM_A
-#define PIN_ENC_B    7    // TRIM_B
-#define PIN_BTN_OK   16   // KEY1=确认
-#define PIN_BTN_BACK 17   // KEY0=返回
-// ── 屏幕分辨率 ──
+// ── 0.96" SSD1306 128×64，I2C 四针，与扩展板共用 GPIO8/9，地址 0x3C ──
+#define BOARD_HAS_STATUS_OLED 1
+#define STATUS_OLED_W 128
+#define STATUS_OLED_H 64
+
+// 自复按钮：另一端接 GND，内部上拉，按下为低
+#define PIN_BTN_ACTION 6  // 短按：检测并浇干盆；长按：切换自动/手动
+#define PIN_BTN_ESTOP 7   // 按下即急停
+
+// 旧 LVGL 编码器界面仍引用这些脚；当前量产交互不用编码器
+#define PIN_ENC_A 6
+#define PIN_ENC_B 7
+#define PIN_BTN_OK 16
+#define PIN_BTN_BACK 17
 #define LVGL_HOR_RES 128
 #define LVGL_VER_RES 64

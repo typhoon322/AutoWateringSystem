@@ -2,13 +2,13 @@
 
 GitHub: [typhoon322/AutoWateringSystem](https://github.com/typhoon322/AutoWateringSystem)
 
-基于 **I2C 扩展子板** 的多分区自动灌溉（**v2.1：单泵 + 电磁阀**）：1 块 MCU 管 1–10 盆；**扩展板接线固定，前期 C3 验证、量产换 S3 即可**。
+基于 **I2C 扩展子板** 的多分区自动灌溉（**v2.1：单泵 + 电磁阀**）：一块 ESP32-S3 管 1–10 盆。
 
 ## 硬件
 
 | 组件 | 说明 |
 |------|------|
-| MCU | **前期** [ESP32-C3 0.42" OLED](docs/board-esp32-c3-042-oled.md) · **量产** ESP32-S3 |
+| MCU | ESP32-S3（I2C GPIO8/9，0.96" SSD1306 状态屏） |
 | 扩展板 | 3× ADS1115（湿度）+ 1× PCA9555（10 路阀） |
 | 传感器 | 湿度探头 × 1–10 + 共用 YF-S201 流量计 |
 | 执行 | 1 × 水泵 + **1–10 × 12 V 电磁阀** |
@@ -27,7 +27,6 @@ GitHub: [typhoon322/AutoWateringSystem](https://github.com/typhoon322/AutoWateri
 | [系统设计](docs/system-design.md) | 架构、状态机、安全、API 概要 |
 | [开发文档](docs/development.md) | 编译烧录、CLI、Web API、标定、测试 |
 | [使用说明书](docs/user-manual.md) | 组装、配网、日常操作、故障排查 |
-| [C3 0.42 OLED 板说明](docs/board-esp32-c3-042-oled.md) | 01Space 小板引脚、官方资料、接线 |
 | [文档-代码映射](docs/DOC_MAP.md) | 变更时需同步更新的文档对照表 |
 | [项目状态 / 上下文摘要](docs/project-status.md) | 里程碑、裸板验证结果、待办、新 Chat 接续 |
 
@@ -42,12 +41,7 @@ GitHub: [typhoon322/AutoWateringSystem](https://github.com/typhoon322/AutoWateri
 ### 编译与烧录
 
 ```bash
-# 前期验证：C3 + OLED（与扩展板联调）
-pio run -e esp32-c3-oled-test -t upload
-
-# 量产：S3（扩展板不变，只换 MCU）
 pio run -e esp32-s3-irrigation -t upload
-
 pio device monitor -b 115200
 ```
 
@@ -71,10 +65,9 @@ save
 ## 项目结构
 
 ```
-include/platform.h              # MCU 策略（C3 测试 / S3 量产）
-include/boards/board_io_map.h   # 扩展板 I2C 布局（共用）
-include/boards/board_c3_oled.h  # C3 测试板 MCU 引脚
-include/boards/board_s3.h        # S3 量产 MCU 引脚
+include/platform.h              # 板级入口
+include/boards/board_io_map.h   # 扩展板 I2C 布局
+include/boards/board_s3.h       # ESP32-S3 引脚
 src/bus/                        # I2C 初始化
 src/sensor/ads1115.*          # 湿度 ADC
 src/actuator/pca9555.*        # 电磁阀扩展

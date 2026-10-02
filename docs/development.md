@@ -20,31 +20,23 @@ cd AutoWateringSystem   # 克隆后的目录名；本机若已重命名则 cd �
 # ~/ESP32/AutoIrrigationSystem/AutoIrrigationSystem
 cd ~/ESP32/AutoIrrigationSystem/AutoIrrigationSystem
 
-pio run -e esp32-c3-oled-test
+pio run -e esp32-s3-irrigation
 ```
 
 ### 1.2 编译 / 烧录 / 监控
 
 ```bash
-# 编译
-pio run -e esp32-c3-oled-test
-
-# 烧录
-pio run -e esp32-c3-oled-test -t upload
-
-# 串口监控
+pio run -e esp32-s3-irrigation
+pio run -e esp32-s3-irrigation -t upload
 pio device monitor -b 115200
-
-# 上传文件系统（若使用 data/ 静态资源）
-pio run -e esp32-c3-oled-test -t uploadfs
+pio run -e esp32-s3-irrigation -t uploadfs
 ```
 
 ### 1.3 编译环境
 
 | PlatformIO env | MCU | 用途 |
 |----------------|-----|------|
-| `esp32-c3-oled-test` | ESP32-C3 0.42" OLED | 前期验证（I2C GPIO5/6，[板级说明](board-esp32-c3-042-oled.md)） |
-| `esp32-s3-irrigation` | ESP32-S3 | 量产（I2C GPIO8/9，扩展板不变） |
+| `esp32-s3-irrigation` | ESP32-S3 | 唯一目标（I2C GPIO8/9，0.96" 状态屏，流量计与阀开启） |
 
 ---
 
@@ -57,8 +49,7 @@ pio run -e esp32-c3-oled-test -t uploadfs
 │   ├── config.h                 # 全局默认参数
 │   ├── boards/
 │   │   ├── board_io_map.h       # I2C 扩展板布局（10 路）
-│   │   ├── board_c3_oled.h      # C3 测试 MCU 引脚
-│   │   └── board_s3.h           # S3 量产 MCU 引脚
+│   │   └── board_s3.h           # ESP32-S3 引脚
 │   └── types/
 │       └── zone_config.h        # 分区与系统配置结构体
 ├── src/
@@ -229,7 +220,17 @@ Dashboard（`/`）内嵌联调测试能力（2026-08-18 增强）：
 - `GET /api/history`：最近 50 条浇水记录（NVS 持久化，重启保留）`{records:[{ts,zone,volume_ml,trigger}]}`，trigger: manual|threshold|schedule
 - 浇水时间窗口：`auto_window_enabled` + `auto_win_sh/sm/eh/em`（全局），每盆 `window_override` + `win_sh/sm/eh/em`（覆盖）；窗口外自动（阈值）不触发，手动/定时不受限；支持跨午夜
 
-### 显示屏（2026-08-22 接入，v2：SH1106 128×64 I2C）
+### 显示屏与面板按键（2026-10-02，S3）
+
+- 0.96" SSD1306 128×64，I2C 四针，地址 0x3C，SDA/SCL 与扩展板共用 **GPIO8/9**，供电 3.3V
+- 动作键 GPIO6、急停键 GPIO7：自复开关，一端接 GPIO、一端接 GND（内部上拉，按下为低）
+- 短按动作键（<0.8 s）：立即采样，湿度低于下限的已标定盆按各自 `volume_ml` 排队浇水
+- 长按动作键（≥0.8 s）：全部盆在自动/手动之间切换，并写入 NVS
+- 急停键：按下即 `emergencyStop`（停泵关阀并锁定）
+- 屏上四行：运行状态、泵/阀/模式、前 4 盆湿度、最近动作（约 4 s）
+- 旧的 SH1106 + EC11 + LVGL 三屏仍留在代码里，`BOARD_HAS_LVGL=0`，当前不编译
+
+### 显示屏（2026-08-22 接入，v2：SH1106 128×64 I2C，已由上节取代）
 
 - SH1106 128×64 OLED，I2C 共用 GPIO8/9（地址 0x3C），LVGL 9 单色（LV_COLOR_DEPTH=1）
 - EC11 编码器（TRIM_A/B→GPIO6/7）+ 按键（KEY0=返回→GPIO17、KEY1=确认→GPIO16；PUSH 预留）
@@ -248,7 +249,7 @@ Dashboard（`/`）内嵌联调测试能力（2026-08-18 增强）：
 
 ```json
 {
-  "board": "ESP32-C3-Irrigation",
+  "board": "ESP32-S3-Irrigation",
   "pump": false,
   "valve_on": false,
   "active_valve": -1,
@@ -358,6 +359,20 @@ Body 可含 `zones[]` 每分区：`name`, `moisture_low/high`, `volume_ml`, `aut
 
 GET 返回连接状态；POST 设置 `ssid`, `password`, `enabled`。
 
+## 5.17 BLE（安卓 App）
+
+广播名 **Langua**。服务 `8a1f0001-4b2c-4d5e-9f10-112233445501`。
+
+| 特征 | UUID 尾 | 方向 | 内容 |
+|------|---------|------|------|
+| 状态 | …5502 | Notify | `A5` + 包序号 + 总包数 + 载荷切片（每片 17 字节） |
+| 命令 | …5503 | Write | ASCII：`water <z> <ml>`、`auto <z> 0\|1`、`vol <z> <ml>`、`estop`、`stop`、`sample`、`pump 0\|1`、`valve <z>\|off`、`cal <z> dry\|wet` |
+| 应答 | …5504 | Notify | `OK` 或 `ERR ...` |
+
+状态载荷（小端）：版本、运行状态、安全状态、标志（泵/阀/锁定）、当前阀、队列、盆数、今日 ml、本次 ml；每盆 16 字节（湿度%、上下限、自动/有效标志、水量、ADC、名称最多 7 字节）。
+
+安卓工程在 `android/`，用 Android Studio 打开后安装。Web 家庭页仍保留。
+
 ---
 
 ## 6. 标定流程
@@ -407,7 +422,7 @@ GET 返回连接状态；POST 设置 `ssid`, `password`, `enabled`。
 
 ### 7.1 单元 / 逻辑（无硬件）
 
-- [ ] 编译通过 `pio run -e esp32-c3-oled-test` 与 `pio run -e esp32-s3-irrigation`
+- [ ] 编译通过 `pio run -e esp32-s3-irrigation`
 - [ ] 状态机：模拟体积达标后转 Done
 - [ ] 日限额：累计超限后拒绝 auto
 
