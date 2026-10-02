@@ -167,6 +167,7 @@ private fun HomeScreen(
                 device.zones.forEach { zone ->
                     ZoneCard(
                         zone,
+                        valveOpen = device.valveOn && device.activeValve == zone.index,
                         volumes[zone.index] ?: zone.volume.toString(),
                         onVolume = { volumes[zone.index] = it },
                         onCommand = onCommand,
@@ -215,7 +216,6 @@ private fun ServiceCard(device: DeviceUi, onCommand: (String) -> Unit) {
                     onClick = { onCommand(if (device.pump) "pump 0" else "pump 1") },
                     colors = ButtonDefaults.buttonColors(containerColor = if (device.pump) Warn else Accent),
                 ) { Text(if (device.pump) "关泵" else "开泵") }
-                Button(onClick = { onCommand("valve off") }) { Text("阀全关") }
             }
         }
     }
@@ -224,6 +224,7 @@ private fun ServiceCard(device: DeviceUi, onCommand: (String) -> Unit) {
 @Composable
 private fun ZoneCard(
     zone: ZoneUi,
+    valveOpen: Boolean,
     volume: String,
     onVolume: (String) -> Unit,
     onCommand: (String) -> Unit,
@@ -271,7 +272,10 @@ private fun ZoneCard(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onCommand("cal ${zone.index} dry") }) { Text("标定干") }
                 Button(onClick = { onCommand("cal ${zone.index} wet") }) { Text("标定湿") }
-                Button(onClick = { onCommand("valve ${zone.index}") }) { Text("开阀") }
+                Button(
+                    onClick = { onCommand(if (valveOpen) "valve off" else "valve ${zone.index}") },
+                    colors = ButtonDefaults.buttonColors(containerColor = if (valveOpen) Warn else Accent),
+                ) { Text(if (valveOpen) "关阀" else "开阀") }
             }
         }
     }
