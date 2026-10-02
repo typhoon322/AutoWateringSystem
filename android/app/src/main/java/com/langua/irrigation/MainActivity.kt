@@ -55,6 +55,12 @@ class MainActivity : ComponentActivity() {
         else linkText = "需要蓝牙权限才能连接灌溉器"
     }
 
+    private val enableBtLaunch = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) ensurePermissionAndScan()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ble = BleClient(
@@ -75,6 +81,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        ensurePermissionAndScan()
     }
 
     override fun onDestroy() {
@@ -89,7 +96,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (!adapter.isEnabled) {
-            startActivity(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            enableBtLaunch.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
         val needed = requiredPermissions().filter {
