@@ -167,7 +167,6 @@ class BleClient(
         ) {
             handleChange(ch, value)
         }
-    }
 
         @SuppressLint("MissingPermission")
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
