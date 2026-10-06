@@ -50,6 +50,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -70,6 +71,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -86,6 +88,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -482,6 +485,7 @@ private fun SettingsPage(
                     SettingsZoneCard(zone, lows, highs, mediaTick, online, onPickPhoto, onLocalChange, onCommand)
                 }
             }
+            ZoneCountCard(device.zones.size, online, onCommand)
         }
     }
 }
@@ -926,7 +930,6 @@ private fun RulesCard(device: DeviceUi, online: Boolean, onCommand: (String) -> 
     var em by remember(device.winEm) { mutableStateOf(device.winEm.coerceIn(0, 59)) }
     val limit = nearestLimit(device.dailyLimit)
     var limitIndex by remember(limit) { mutableStateOf(LimitStops.indexOf(limit).coerceAtLeast(0)) }
-    var zones by remember(device.zones.size) { mutableStateOf(device.zones.size.coerceAtLeast(1)) }
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("浇水规则", color = Color.White, style = MaterialTheme.typography.titleMedium)
@@ -975,17 +978,69 @@ private fun RulesCard(device: DeviceUi, online: Boolean, onCommand: (String) -> 
                 ),
             )
             DarkButton("保存限额", online) { onCommand("limit ${LimitStops[limitIndex]}") }
+        }
+    }
+}
+
+@Composable
+private fun ZoneCountCard(current: Int, online: Boolean, onCommand: (String) -> Unit) {
+    var draft by remember(current) { mutableStateOf(current.coerceIn(1, 10)) }
+    var pending by remember { mutableStateOf<Int?>(null) }
+    val changed = draft != current
+    Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("盆数", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Text("当前 $current 盆。这是少用的设置，改完要再确认一次才会写入灌溉器。", color = Muted)
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("启用盆数", color = Color.White)
-                Stepper(zones, 1, 10, 1, online) { zones = it }
+                Text(if (changed) "改为 $draft 盆" else "保持 $current 盆", color = Color.White)
+                Stepper(draft, 1, 10, 1, online) { draft = it }
             }
-            DarkButton("保存盆数", online) { onCommand("zones $zones") }
+            DarkButton("应用盆数", enabled = online && changed) { pending = draft }
         }
     }
+    val next = pending
+    if (next != null) {
+        val adding = next > current
+        val pots = potSpan(minOf(current, next) + 1, maxOf(current, next))
+        AlertDialog(
+            onDismissRequest = { pending = null },
+            properties = DialogProperties(dismissOnClickOutside = false),
+            containerColor = CardBg,
+            titleContentColor = Color.White,
+            textContentColor = Color.White,
+            title = { Text(if (adding) "确认加到 $next 盆" else "确认减到 $next 盆") },
+            text = {
+                Text(
+                    if (adding) {
+                        "将启用 $pots。请先把湿度和阀门接到对应针脚。保存后可以手动浇水；自动浇水要先在调试页做干、湿标定。"
+                    } else {
+                        "将停用 $pots。这些盆不再采样，也不会再浇水。标定仍留在灌溉器里，以后加回来还能用。"
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pending = null
+                    onCommand("zones $next")
+                }) {
+                    Text(if (adding) "确认增加" else "确认减少", color = if (adding) Accent else Warn)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pending = null }) { Text("取消", color = Muted) }
+            },
+        )
+    }
+}
+
+private fun potSpan(from: Int, to: Int): String = when {
+    from >= to -> "${to}#"
+    from + 1 == to -> "${from}# 和 ${to}#"
+    else -> "${from}# 到 ${to}#"
 }
 
 @Composable
