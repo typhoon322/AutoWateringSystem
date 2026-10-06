@@ -129,17 +129,30 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        SnapshotStore.load(this)?.let { saved ->
+            device = saved.device
+            history = saved.history
+            wifiOn = saved.wifiOn
+            wifiSsid = saved.wifiSsid
+            wifiIp = saved.wifiIp
+        }
         ble = BleClient(
             this,
             onLink = { linkText = it },
-            onDevice = { device = it },
+            onDevice = {
+                device = it
+                persistSnapshot()
+            },
             onReply = { raw ->
                 val text = raw.trim()
                 when {
                     text.startsWith("H ") -> {
                         histLeft = text.removePrefix("H ").toIntOrNull() ?: 0
                         histBuf.clear()
-                        if (histLeft == 0) history = emptyList()
+                        if (histLeft == 0) {
+                            history = emptyList()
+                            persistSnapshot()
+                        }
                     }
                     text.startsWith("R ") -> {
                         val p = text.removePrefix("R ").split(" ")
@@ -153,16 +166,26 @@ class MainActivity : ComponentActivity() {
                                 )
                             )
                             histLeft -= 1
-                            if (histLeft <= 0) history = histBuf.toList()
+                            if (histLeft <= 0) {
+                                history = histBuf.toList()
+                                persistSnapshot()
+                            }
                         }
                     }
                     text.startsWith("W ") -> {
                         val p = text.removePrefix("W ").split(" ", limit = 2)
                         wifiOn = p.getOrNull(0) == "1"
                         wifiIp = p.getOrNull(1)?.takeUnless { it == "-" } ?: ""
+                        persistSnapshot()
                     }
-                    text.startsWith("S ") -> wifiSsid = text.removePrefix("S ")
-                    text == "S" -> wifiSsid = ""
+                    text.startsWith("S ") -> {
+                        wifiSsid = text.removePrefix("S ")
+                        persistSnapshot()
+                    }
+                    text == "S" -> {
+                        wifiSsid = ""
+                        persistSnapshot()
+                    }
                     else -> friendlyReply(text)?.let {
                         noticeSeq += 1
                         notice = Notice(noticeSeq, it)
@@ -180,6 +203,7 @@ class MainActivity : ComponentActivity() {
                     wifiOn = wifiOn,
                     wifiSsid = wifiSsid,
                     wifiIp = wifiIp,
+                    online = linkText == "已连接",
                     mediaTick = mediaTick,
                     onPickPhoto = { zone ->
                         photoFor = zone
@@ -188,7 +212,7 @@ class MainActivity : ComponentActivity() {
                     onLocalChange = { mediaTick += 1 },
                     onConnect = { ensurePermissionAndScan() },
                     onDisconnect = { ble.disconnect() },
-                    onCommand = { ble.send(it) },
+                    onCommand = { if (linkText == "已连接") ble.send(it) },
                 )
             }
         }
@@ -198,6 +222,11 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         ble.disconnect()
         super.onDestroy()
+    }
+
+    private fun persistSnapshot() {
+        val snap = device ?: return
+        SnapshotStore.save(this, snap, history, wifiOn, wifiSsid, wifiIp)
     }
 
     private fun ensurePermissionAndScan() {
@@ -270,6 +299,7 @@ private fun AppShell(
     wifiOn: Boolean,
     wifiSsid: String,
     wifiIp: String,
+    online: Boolean,
     mediaTick: Int,
     onPickPhoto: (Int) -> Unit,
     onLocalChange: () -> Unit,
@@ -286,11 +316,11 @@ private fun AppShell(
         val text = notice?.text ?: return@LaunchedEffect
         snackbar.showSnackbar(text)
     }
-    LaunchedEffect(tab, device?.dailyMl, device != null) {
-        if (tab == AppTab.Home && device != null) onCommand("hist")
+    LaunchedEffect(tab, online, device?.dailyMl, device != null) {
+        if (online && tab == AppTab.Home && device != null) onCommand("hist")
     }
-    LaunchedEffect(tab) {
-        if (tab == AppTab.Settings && device != null) onCommand("wifi?")
+    LaunchedEffect(tab, online) {
+        if (online && tab == AppTab.Settings && device != null) onCommand("wifi?")
     }
     Scaffold(
         containerColor = Bg,
@@ -324,12 +354,12 @@ private fun AppShell(
         },
     ) { padding ->
         when (tab) {
-            AppTab.Home -> HomePage(link, device, history, volumes, mediaTick, onCommand, Modifier.padding(padding))
+            AppTab.Home -> HomePage(link, device, history, volumes, online, mediaTick, onCommand, Modifier.padding(padding))
             AppTab.Settings -> SettingsPage(
-                link, device, lows, highs, wifiOn, wifiSsid, wifiIp, mediaTick,
+                link, device, lows, highs, wifiOn, wifiSsid, wifiIp, online, mediaTick,
                 onPickPhoto, onLocalChange, onConnect, onDisconnect, onCommand, Modifier.padding(padding),
             )
-            AppTab.Debug -> DebugPage(link, device, onCommand, Modifier.padding(padding))
+            AppTab.Debug -> DebugPage(link, device, online, onCommand, Modifier.padding(padding))
         }
     }
 }
@@ -368,6 +398,7 @@ private fun HomePage(
     device: DeviceUi?,
     history: List<HistUi>,
     volumes: MutableMap<Int, Int>,
+    online: Boolean,
     mediaTick: Int,
     onCommand: (String) -> Unit,
     modifier: Modifier,
@@ -376,19 +407,21 @@ private fun HomePage(
         if (device == null) {
             HintCard("还没连上灌溉器", "打开 App 会自动连一次，也可以到「设置」里再连。")
         } else {
-            val watering = if ((device.state == 2 || device.state == 3) && device.activeValve >= 0) {
+            if (!online) OfflineNote()
+            val watering = if (online && (device.state == 2 || device.state == 3) && device.activeValve >= 0) {
                 device.activeValve
             } else {
                 -1
             }
             PotOverview(device.zones, watering, mediaTick)
-            StatusCard(device, onCommand)
+            StatusCard(device, online, onCommand)
             device.zones.forEach { zone ->
                 key(zone.index) {
                     HomeZoneCard(
                         zone,
                         volumes[zone.index] ?: nearestVolume(zone.volume),
                         mediaTick,
+                        online,
                         onVolume = { volumes[zone.index] = it },
                         onCommand = onCommand,
                     )
@@ -408,6 +441,7 @@ private fun SettingsPage(
     wifiOn: Boolean,
     wifiSsid: String,
     wifiIp: String,
+    online: Boolean,
     mediaTick: Int,
     onPickPhoto: (Int) -> Unit,
     onLocalChange: () -> Unit,
@@ -425,6 +459,7 @@ private fun SettingsPage(
                     Button(onClick = onConnect, modifier = Modifier.weight(1f)) { Text("连接") }
                     Button(
                         onClick = onDisconnect,
+                        enabled = online,
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFF21262D),
@@ -437,12 +472,13 @@ private fun SettingsPage(
         if (device == null) {
             HintCard("还没有盆的设置", "连上之后可以改每盆的湿度上下限。")
         } else {
+            if (!online) OfflineNote()
             Text("低于下限自动浇，高于上限视为偏湿。定时和自动时段在每张卡片里。", color = Muted)
-            RulesCard(device, onCommand)
-            WifiCard(wifiOn, wifiSsid, wifiIp, device.wifiUp, onCommand)
+            RulesCard(device, online, onCommand)
+            WifiCard(wifiOn, wifiSsid, wifiIp, device.wifiUp, online, onCommand)
             device.zones.forEach { zone ->
                 key(zone.index) {
-                    SettingsZoneCard(zone, lows, highs, mediaTick, onPickPhoto, onLocalChange, onCommand)
+                    SettingsZoneCard(zone, lows, highs, mediaTick, online, onPickPhoto, onLocalChange, onCommand)
                 }
             }
         }
@@ -453,6 +489,7 @@ private fun SettingsPage(
 private fun DebugPage(
     link: String,
     device: DeviceUi?,
+    online: Boolean,
     onCommand: (String) -> Unit,
     modifier: Modifier,
 ) {
@@ -460,12 +497,14 @@ private fun DebugPage(
         if (device == null) {
             HintCard("还不能调试", "连上之后可以采样、标定、开关泵阀。")
         } else {
-            ServiceCard(device, onCommand)
-            FlowCard(device, onCommand)
+            if (!online) OfflineNote()
+            ServiceCard(device, online, onCommand)
+            FlowCard(device, online, onCommand)
             device.zones.forEach { zone ->
                 DebugZoneCard(
                     zone,
                     valveOpen = device.valveOn && device.activeValve == zone.index,
+                    online = online,
                     onCommand = onCommand,
                 )
             }
@@ -474,7 +513,12 @@ private fun DebugPage(
 }
 
 @Composable
-private fun StatusCard(device: DeviceUi, onCommand: (String) -> Unit) {
+private fun OfflineNote() {
+    Text("未连接，下面是断开前的状态，连上后才能操作。", color = Muted)
+}
+
+@Composable
+private fun StatusCard(device: DeviceUi, online: Boolean, onCommand: (String) -> Unit) {
     val fault = device.state == 5 || device.locked
     val tone = if (fault) Warn else Accent
     val valve = if (device.valveOn && device.activeValve >= 0) "${device.activeValve + 1}#" else "关"
@@ -504,20 +548,30 @@ private fun StatusCard(device: DeviceUi, onCommand: (String) -> Unit) {
             }
             Button(
                 onClick = { onCommand("detect") },
+                enabled = online,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("检测并浇水") }
             Button(
                 onClick = { onCommand("estop") },
+                enabled = online,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Warn, contentColor = Color.White),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Warn,
+                    contentColor = Color.White,
+                    disabledContainerColor = Color(0xFF2A3140),
+                    disabledContentColor = Muted,
+                ),
             ) { Text("急停") }
             if (fault) {
                 Button(
                     onClick = { onCommand("stop") },
+                    enabled = online,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF21262D),
                         contentColor = Color.White,
+                        disabledContainerColor = Color(0xFF2A3140),
+                        disabledContentColor = Muted,
                     ),
                 ) { Text("恢复运行") }
             }
@@ -534,19 +588,22 @@ private fun SummaryStat(label: String, value: String, modifier: Modifier = Modif
 }
 
 @Composable
-private fun ServiceCard(device: DeviceUi, onCommand: (String) -> Unit) {
+private fun ServiceCard(device: DeviceUi, online: Boolean, onCommand: (String) -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("现场调试", color = Color.White, style = MaterialTheme.typography.titleMedium)
             Text("直接开关泵和阀，不经过浇水保护。标定会先采样再写入当前 ADC。", color = Muted)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onCommand("sample") }, modifier = Modifier.weight(1f)) { Text("采样") }
+                Button(onClick = { onCommand("sample") }, enabled = online, modifier = Modifier.weight(1f)) { Text("采样") }
                 Button(
                     onClick = { onCommand(if (device.pump) "pump 0" else "pump 1") },
+                    enabled = online,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (device.pump) Warn else Accent,
                         contentColor = if (device.pump) Color.White else Color(0xFF0F1419),
+                        disabledContainerColor = Color(0xFF2A3140),
+                        disabledContentColor = Muted,
                     ),
                 ) { Text(if (device.pump) "关泵" else "开泵") }
             }
@@ -559,6 +616,7 @@ private fun HomeZoneCard(
     zone: ZoneUi,
     volume: Int,
     mediaTick: Int,
+    online: Boolean,
     onVolume: (Int) -> Unit,
     onCommand: (String) -> Unit,
 ) {
@@ -582,6 +640,7 @@ private fun HomeZoneCard(
                 Text("自动浇水", color = Color.White)
                 Switch(
                     checked = zone.auto,
+                    enabled = online,
                     onCheckedChange = { onCommand("auto ${zone.index} ${if (it) 1 else 0}") },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
@@ -599,6 +658,7 @@ private fun HomeZoneCard(
             Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 Slider(
                     value = index.toFloat(),
+                    enabled = online,
                     onValueChange = { raw ->
                         val i = raw.roundToInt().coerceIn(0, VolumeStops.lastIndex)
                         onVolume(VolumeStops[i])
@@ -621,6 +681,7 @@ private fun HomeZoneCard(
                     onCommand("vol ${zone.index} $ml")
                     onCommand("water ${zone.index} $ml")
                 },
+                enabled = online,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("浇水") }
         }
@@ -633,6 +694,7 @@ private fun SettingsZoneCard(
     lows: MutableMap<Int, String>,
     highs: MutableMap<Int, String>,
     mediaTick: Int,
+    online: Boolean,
     onPickPhoto: (Int) -> Unit,
     onLocalChange: () -> Unit,
     onCommand: (String) -> Unit,
@@ -686,6 +748,7 @@ private fun SettingsZoneCard(
                 OutlinedTextField(
                     value = low,
                     onValueChange = { if (it.length <= 3 && it.all(Char::isDigit)) lows[zone.index] = it },
+                    enabled = online,
                     label = { Text("下限 %") },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
@@ -694,13 +757,14 @@ private fun SettingsZoneCard(
                 OutlinedTextField(
                     value = high,
                     onValueChange = { if (it.length <= 3 && it.all(Char::isDigit)) highs[zone.index] = it },
+                    enabled = online,
                     label = { Text("上限 %") },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                     colors = fieldColors(),
                 )
             }
-            DarkButton("保存阈值") {
+            DarkButton("保存阈值", online) {
                 val lo = low.toIntOrNull() ?: zone.low
                 val hi = high.toIntOrNull() ?: zone.high
                 onCommand("th ${zone.index} $lo $hi")
@@ -713,14 +777,15 @@ private fun SettingsZoneCard(
                 Text("定时浇水", color = Color.White)
                 Switch(
                     checked = schOn,
+                    enabled = online,
                     onCheckedChange = { schOn = it },
                     colors = switchColors(),
                 )
             }
             if (schOn) {
-                TimeRow("时刻", hour, minute, { hour = it }, { minute = it })
+                TimeRow("时刻", hour, minute, online, { hour = it }, { minute = it })
             }
-            DarkButton("保存定时") {
+            DarkButton("保存定时", online) {
                 if (schOn) onCommand("sch ${zone.index} $hour $minute")
                 else onCommand("sch ${zone.index} off")
             }
@@ -732,6 +797,7 @@ private fun SettingsZoneCard(
 private fun DebugZoneCard(
     zone: ZoneUi,
     valveOpen: Boolean,
+    online: Boolean,
     onCommand: (String) -> Unit,
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
@@ -741,21 +807,26 @@ private fun DebugZoneCard(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { onCommand("cal ${zone.index} dry") },
+                    enabled = online,
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                 ) { Text("标定干") }
                 Button(
                     onClick = { onCommand("cal ${zone.index} wet") },
+                    enabled = online,
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                 ) { Text("标定湿") }
                 Button(
                     onClick = { onCommand(if (valveOpen) "valve off" else "valve ${zone.index}") },
+                    enabled = online,
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (valveOpen) Warn else Accent,
                         contentColor = if (valveOpen) Color.White else Color(0xFF0F1419),
+                        disabledContainerColor = Color(0xFF2A3140),
+                        disabledContentColor = Muted,
                     ),
                 ) { Text(if (valveOpen) "关阀" else "开阀") }
             }
@@ -777,11 +848,17 @@ private fun switchColors() = SwitchDefaults.colors(
 )
 
 @Composable
-private fun DarkButton(text: String, onClick: () -> Unit) {
+private fun DarkButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D), contentColor = Color.White),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0xFF21262D),
+            contentColor = Color.White,
+            disabledContainerColor = Color(0xFF2A3140),
+            disabledContentColor = Muted,
+        ),
     ) { Text(text) }
 }
 
@@ -790,6 +867,7 @@ private fun TimeRow(
     label: String,
     hour: Int,
     minute: Int,
+    enabled: Boolean,
     onHour: (Int) -> Unit,
     onMinute: (Int) -> Unit,
 ) {
@@ -799,19 +877,25 @@ private fun TimeRow(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(label, color = Color.White)
-        Stepper(hour, 0, 23, 1, onHour)
+        Stepper(hour, 0, 23, 1, enabled, onHour)
         Text(":", color = Muted)
-        Stepper(minute, 0, 59, 5, onMinute)
+        Stepper(minute, 0, 59, 5, enabled, onMinute)
     }
 }
 
 @Composable
-private fun Stepper(value: Int, min: Int, max: Int, step: Int, onChange: (Int) -> Unit) {
+private fun Stepper(value: Int, min: Int, max: Int, step: Int, enabled: Boolean, onChange: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Button(
             onClick = { onChange((value - step).coerceIn(min, max)) },
+            enabled = enabled,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D), contentColor = Color.White),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF21262D),
+                contentColor = Color.White,
+                disabledContainerColor = Color(0xFF2A3140),
+                disabledContentColor = Muted,
+            ),
         ) { Text("−") }
         Text(
             "%02d".format(value),
@@ -821,14 +905,20 @@ private fun Stepper(value: Int, min: Int, max: Int, step: Int, onChange: (Int) -
         )
         Button(
             onClick = { onChange((value + step).coerceIn(min, max)) },
+            enabled = enabled,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D), contentColor = Color.White),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF21262D),
+                contentColor = Color.White,
+                disabledContainerColor = Color(0xFF2A3140),
+                disabledContentColor = Muted,
+            ),
         ) { Text("+") }
     }
 }
 
 @Composable
-private fun RulesCard(device: DeviceUi, onCommand: (String) -> Unit) {
+private fun RulesCard(device: DeviceUi, online: Boolean, onCommand: (String) -> Unit) {
     val allAuto = device.zones.isNotEmpty() && device.zones.all { it.auto }
     var winOn by remember(device.winOn) { mutableStateOf(device.winOn) }
     var sh by remember(device.winSh) { mutableStateOf(device.winSh.coerceIn(0, 23)) }
@@ -849,6 +939,7 @@ private fun RulesCard(device: DeviceUi, onCommand: (String) -> Unit) {
                 Text("全部自动", color = Color.White)
                 Switch(
                     checked = allAuto,
+                    enabled = online,
                     onCheckedChange = { onCommand("auto all ${if (it) 1 else 0}") },
                     colors = switchColors(),
                 )
@@ -862,16 +953,17 @@ private fun RulesCard(device: DeviceUi, onCommand: (String) -> Unit) {
                     Text("自动时段", color = Color.White)
                     Text("起止相同表示全天。窗口外不自动浇。", color = Muted)
                 }
-                Switch(checked = winOn, onCheckedChange = { winOn = it }, colors = switchColors())
+                Switch(checked = winOn, enabled = online, onCheckedChange = { winOn = it }, colors = switchColors())
             }
             if (winOn) {
-                TimeRow("开始", sh, sm, { sh = it }, { sm = it })
-                TimeRow("结束", eh, em, { eh = it }, { em = it })
+                TimeRow("开始", sh, sm, online, { sh = it }, { sm = it })
+                TimeRow("结束", eh, em, online, { eh = it }, { em = it })
             }
-            DarkButton("保存时段") { onCommand("win ${if (winOn) 1 else 0} $sh $sm $eh $em") }
+            DarkButton("保存时段", online) { onCommand("win ${if (winOn) 1 else 0} $sh $sm $eh $em") }
             Text("日限额 ${LimitStops[limitIndex]} ml", color = Color.White)
             Slider(
                 value = limitIndex.toFloat(),
+                enabled = online,
                 onValueChange = { limitIndex = it.roundToInt().coerceIn(0, LimitStops.lastIndex) },
                 valueRange = 0f..LimitStops.lastIndex.toFloat(),
                 steps = LimitStops.size - 2,
@@ -879,18 +971,20 @@ private fun RulesCard(device: DeviceUi, onCommand: (String) -> Unit) {
                     thumbColor = Accent,
                     activeTrackColor = Accent,
                     inactiveTrackColor = Color(0xFF2C3544),
+                    disabledThumbColor = Muted,
+                    disabledActiveTrackColor = Color(0xFF2C3544),
                 ),
             )
-            DarkButton("保存限额") { onCommand("limit ${LimitStops[limitIndex]}") }
+            DarkButton("保存限额", online) { onCommand("limit ${LimitStops[limitIndex]}") }
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("启用盆数", color = Color.White)
-                Stepper(zones, 1, 10, 1) { zones = it }
+                Stepper(zones, 1, 10, 1, online) { zones = it }
             }
-            DarkButton("保存盆数") { onCommand("zones $zones") }
+            DarkButton("保存盆数", online) { onCommand("zones $zones") }
         }
     }
 }
@@ -901,6 +995,7 @@ private fun WifiCard(
     ssid: String,
     ip: String,
     up: Boolean,
+    online: Boolean,
     onCommand: (String) -> Unit,
 ) {
     var on by remember(enabled) { mutableStateOf(enabled) }
@@ -916,11 +1011,12 @@ private fun WifiCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("启用", color = Color.White)
-                Switch(checked = on, onCheckedChange = { on = it }, colors = switchColors())
+                Switch(checked = on, enabled = online, onCheckedChange = { on = it }, colors = switchColors())
             }
             OutlinedTextField(
                 value = name,
                 onValueChange = { if (it.encodeToByteArray().size <= 32) name = it },
+                enabled = online,
                 label = { Text("名称") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -929,12 +1025,13 @@ private fun WifiCard(
             OutlinedTextField(
                 value = pass,
                 onValueChange = { if (it.length <= 64) pass = it },
+                enabled = online,
                 label = { Text("密码，留空则不改") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 colors = fieldColors(),
             )
-            DarkButton("保存网络") {
+            DarkButton("保存网络", online) {
                 if (name.isNotBlank()) onCommand("ssid $name")
                 if (pass.isNotEmpty()) onCommand("pass $pass")
                 onCommand("wifi ${if (on) 1 else 0}")
@@ -944,7 +1041,7 @@ private fun WifiCard(
 }
 
 @Composable
-private fun FlowCard(device: DeviceUi, onCommand: (String) -> Unit) {
+private fun FlowCard(device: DeviceUi, online: Boolean, onCommand: (String) -> Unit) {
     var ppl by remember(device.ppl) { mutableStateOf(device.ppl.toString()) }
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -953,27 +1050,41 @@ private fun FlowCard(device: DeviceUi, onCommand: (String) -> Unit) {
             OutlinedTextField(
                 value = ppl,
                 onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) ppl = it },
+                enabled = online,
                 label = { Text("每升脉冲") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 colors = fieldColors(),
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onCommand("ppl ${ppl.toIntOrNull() ?: device.ppl}") }, modifier = Modifier.weight(1f)) {
+                Button(
+                    onClick = { onCommand("ppl ${ppl.toIntOrNull() ?: device.ppl}") },
+                    enabled = online,
+                    modifier = Modifier.weight(1f),
+                ) {
                     Text("保存")
                 }
                 Button(
                     onClick = { onCommand("flow 0") },
+                    enabled = online,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D), contentColor = Color.White),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF21262D),
+                        contentColor = Color.White,
+                        disabledContainerColor = Color(0xFF2A3140),
+                        disabledContentColor = Muted,
+                    ),
                 ) { Text("清零") }
             }
             Button(
                 onClick = { onCommand(if (device.purge) "purge 0" else "purge 1") },
+                enabled = online,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (device.purge) Warn else Accent,
                     contentColor = if (device.purge) Color.White else Color(0xFF0F1419),
+                    disabledContainerColor = Color(0xFF2A3140),
+                    disabledContentColor = Muted,
                 ),
             ) { Text(if (device.purge) "停止排气" else "排气") }
         }
