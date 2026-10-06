@@ -339,7 +339,7 @@ private fun AppShell(
         val text = notice?.text ?: return@LaunchedEffect
         snackbar.showSnackbar(text)
     }
-    LaunchedEffect(tab, online, device?.dailyMl, device != null) {
+    LaunchedEffect(tab, online, device?.state, device?.safety, device?.dailyMl, device != null) {
         if (online && tab == AppTab.Home && device != null) onCommand("hist")
     }
     LaunchedEffect(tab, online) {
@@ -779,11 +779,14 @@ private fun SettingsZoneCard(
                 modifier = Modifier.fillMaxWidth(),
                 colors = fieldColors(),
             )
-            DarkButton("保存别名") {
-                ZoneStore.setName(context, zone.index, name)
-                AppLog.op(context, "别名 ${zone.index + 1}# ${name.trim()}")
-                onLocalChange()
-            }
+            Button(
+                onClick = {
+                    ZoneStore.setName(context, zone.index, name)
+                    AppLog.op(context, "别名 ${zone.index + 1}# ${name.trim()}")
+                    onLocalChange()
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("保存别名") }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = low,
