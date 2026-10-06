@@ -49,6 +49,7 @@ class IrrigationController {
   void beginPumping();
   void finishSession(bool fault);
   void abortSession();
+  void recordSession(uint8_t outcome, uint16_t volume_ml);
   void checkAutoTriggers();
   void processQueue();
   void syncActuatorStatus();

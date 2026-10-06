@@ -125,7 +125,7 @@ void replyWifi() {
 
 void replyHistory() {
   const uint8_t n = g_history.count();
-  char line[48];
+  char line[64];
   snprintf(line, sizeof(line), "H %u", n);
   reply(line);
   for (uint8_t i = 0; i < n; ++i) {
@@ -133,8 +133,8 @@ void replyHistory() {
     if (r == nullptr) {
       continue;
     }
-    snprintf(line, sizeof(line), "R %lu %u %u %u", static_cast<unsigned long>(r->ts), r->zone,
-             r->volume_ml, r->trigger);
+    snprintf(line, sizeof(line), "R %lu %u %u %u %u %lu", static_cast<unsigned long>(r->ts), r->zone,
+             r->volume_ml, r->trigger, r->outcome, static_cast<unsigned long>(r->seq));
     reply(line);
     delay(20);
   }

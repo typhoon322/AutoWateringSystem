@@ -44,6 +44,8 @@ data class HistUi(
     val zone: Int,
     val ml: Int,
     val trigger: Int,
+    val outcome: Int = 0,
+    val seq: Long = 0,
 )
 
 object Protocol {
@@ -78,6 +80,14 @@ object Protocol {
         3 -> "手动"
         4 -> "测试"
         else -> "浇水"
+    }
+
+    fun outcomeText(outcome: Int): String = when (outcome) {
+        1 -> "干转"
+        2 -> "超时"
+        3 -> "急停"
+        4 -> "故障"
+        else -> ""
     }
 
     fun parse(payload: ByteArray): DeviceUi? {

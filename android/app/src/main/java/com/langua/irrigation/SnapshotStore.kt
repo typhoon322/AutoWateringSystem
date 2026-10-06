@@ -142,9 +142,11 @@ object SnapshotStore {
         history.forEach { row ->
             put(JSONObject().apply {
                 put("ts", row.ts)
+                put("seq", row.seq)
                 put("zone", row.zone)
                 put("ml", row.ml)
                 put("trigger", row.trigger)
+                put("outcome", row.outcome)
             })
         }
     }
@@ -160,6 +162,8 @@ object SnapshotStore {
                     zone = row.getInt("zone"),
                     ml = row.getInt("ml"),
                     trigger = row.getInt("trigger"),
+                    outcome = row.optInt("outcome", 0),
+                    seq = row.optLong("seq", 0),
                 )
             )
         }

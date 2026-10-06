@@ -135,10 +135,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         SnapshotStore.load(this)?.let { saved ->
             device = saved.device
-            history = saved.history
+            history = HistoryArchive.merge(this, saved.history)
             wifiOn = saved.wifiOn
             wifiSsid = saved.wifiSsid
             wifiIp = saved.wifiIp
+        }
+        if (device == null) {
+            history = HistoryArchive.load(this)
         }
         ble = BleClient(
             this,
@@ -153,25 +156,23 @@ class MainActivity : ComponentActivity() {
                     text.startsWith("H ") -> {
                         histLeft = text.removePrefix("H ").toIntOrNull() ?: 0
                         histBuf.clear()
-                        if (histLeft == 0) {
-                            history = emptyList()
-                            persistSnapshot()
-                        }
                     }
                     text.startsWith("R ") -> {
                         val p = text.removePrefix("R ").split(" ")
                         if (p.size >= 4) {
                             histBuf.add(
                                 HistUi(
-                                    p[0].toLongOrNull() ?: 0L,
-                                    p[1].toIntOrNull() ?: 0,
-                                    p[2].toIntOrNull() ?: 0,
-                                    p[3].toIntOrNull() ?: 0,
+                                    ts = p[0].toLongOrNull() ?: 0L,
+                                    zone = p[1].toIntOrNull() ?: 0,
+                                    ml = p[2].toIntOrNull() ?: 0,
+                                    trigger = p[3].toIntOrNull() ?: 0,
+                                    outcome = p.getOrNull(4)?.toIntOrNull() ?: 0,
+                                    seq = p.getOrNull(5)?.toLongOrNull() ?: 0L,
                                 )
                             )
                             histLeft -= 1
                             if (histLeft <= 0) {
-                                history = histBuf.toList()
+                                history = HistoryArchive.merge(this, histBuf.toList())
                                 persistSnapshot()
                             }
                         }
@@ -230,7 +231,7 @@ class MainActivity : ComponentActivity() {
 
     private fun persistSnapshot() {
         val snap = device ?: return
-        SnapshotStore.save(this, snap, history, wifiOn, wifiSsid, wifiIp)
+        SnapshotStore.save(this, snap, history.take(20), wifiOn, wifiSsid, wifiIp)
     }
 
     private fun ensurePermissionAndScan() {
@@ -1244,14 +1245,21 @@ private fun HistoryCard(history: List<HistUi>, mediaTick: Int) {
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("最近浇水", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Text("手机保存全部 ${history.size} 条，下面是最近 8 条。", color = Muted)
             if (history.isEmpty()) {
                 Text("还没有记录", color = Muted)
             } else {
                 history.take(8).forEach { row ->
                     val name = localName(row.zone, mediaTick).ifBlank { "${row.zone + 1}#" }
+                    val outcome = Protocol.outcomeText(row.outcome)
+                    val detail = if (outcome.isEmpty()) {
+                        Protocol.triggerText(row.trigger)
+                    } else {
+                        "${Protocol.triggerText(row.trigger)} · $outcome"
+                    }
                     Text(
-                        "${histClock(row.ts)}  $name  ${row.ml} ml  ${Protocol.triggerText(row.trigger)}",
-                        color = Color.White,
+                        "${histClock(row.ts)}  $name  ${row.ml} ml  $detail",
+                        color = if (row.outcome == 0) Color.White else Warn,
                     )
                 }
             }

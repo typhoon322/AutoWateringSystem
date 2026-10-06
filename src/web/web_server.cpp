@@ -205,11 +205,13 @@ async function renderHistory(){
   const el=document.getElementById('recList');
   if(!h||!h.records||!h.records.length){el.textContent='暂无记录';return}
   const names=settings.zones||[];
-  const trig={manual:'手动',threshold:'自动',schedule:'定时'};
+  const trig={manual:'手动',threshold:'自动',schedule:'定时',test:'测试'};
+  const outc={dry_run:'干转',timeout:'超时',estop:'急停',fault:'故障'};
   el.innerHTML=h.records.slice(0,10).map(r=>{
     const n=((names[r.zone]||{}).name)||('盆'+(r.zone+1));
     const t=r.ts?new Date(r.ts*1000).toLocaleString('zh-CN',{hour12:false}):'--';
-    return '<div class="rec"><span>'+(trig[r.trigger]||r.trigger)+' · '+esc(n)+' · '+r.volume_ml+'ml</span><span class="t">'+t+'</span></div>';
+    const extra=outc[r.outcome]?' · '+outc[r.outcome]:'';
+    return '<div class="rec"><span>'+(trig[r.trigger]||r.trigger)+extra+' · '+esc(n)+' · '+r.volume_ml+'ml</span><span class="t">'+t+'</span></div>';
   }).join('');
 }
 async function loadAll(){
@@ -1394,6 +1396,16 @@ const char *triggerText(uint8_t t) {
     default: return "unknown";
   }
 }
+
+const char *outcomeText(uint8_t o) {
+  switch (o) {
+    case 1: return "dry_run";
+    case 2: return "timeout";
+    case 3: return "estop";
+    case 4: return "fault";
+    default: return "ok";
+  }
+}
 }  // namespace
 
 void WebServerUi::handleHistory() {
@@ -1408,9 +1420,11 @@ void WebServerUi::handleHistory() {
     }
     JsonObject o = records.add<JsonObject>();
     o["ts"] = r->ts;
+    o["seq"] = r->seq;
     o["zone"] = r->zone;
     o["volume_ml"] = r->volume_ml;
     o["trigger"] = triggerText(r->trigger);
+    o["outcome"] = outcomeText(r->outcome);
   }
   String out;
   serializeJson(doc, out);

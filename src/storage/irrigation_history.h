@@ -2,25 +2,35 @@
 
 #include <stdint.h>
 
+// outcome：0 完成，1 干转，2 超时，3 急停，4 其他故障
+#pragma pack(push, 1)
 struct IrrigationRecord {
-  uint32_t ts;        // unix 时间（NTP；未同步为 0）
-  uint8_t  zone;      // 0-9
-  uint16_t volume_ml; // 实际浇水量
-  uint8_t  trigger;   // IrrigateTrigger: 1=阈值 2=定时 3=手动
+  uint32_t ts;
+  uint32_t seq;
+  uint16_t volume_ml;
+  uint8_t zone;
+  uint8_t trigger;
+  uint8_t outcome;
 };
+#pragma pack(pop)
+static_assert(sizeof(IrrigationRecord) == 13, "history record size");
 
-// 环形队列 50 条，NVS blob 持久化（重启不清零）
+// 环形队列 50 条，NVS 持久化。更早的记录由手机在同步时留下。
 class IrrigationHistory {
  public:
-  bool begin();                          // 从 NVS 加载
-  void add(const IrrigationRecord& r);   // 追加并持久化
+  bool begin();
+  void add(const IrrigationRecord& r);
   uint8_t count() const { return count_; }
   const IrrigationRecord* get(uint8_t i) const;  // 0=最新
 
  private:
+  void persist();
+  bool migrateOld();
+
   static constexpr uint8_t kMax = 50;
   IrrigationRecord ring_[kMax];
   uint8_t count_ = 0;
+  uint32_t next_seq_ = 1;
 };
 
 extern IrrigationHistory g_history;

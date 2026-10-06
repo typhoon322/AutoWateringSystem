@@ -211,18 +211,41 @@ bool IrrigationController::inAutoWindow(uint8_t zone) const {
   return cur >= start || cur < end;  // 跨午夜（如 22:00-02:00）
 }
 
+void IrrigationController::recordSession(uint8_t outcome, uint16_t volume_ml) {
+  IrrigationRecord rec{};
+  const time_t now = time(nullptr);
+  rec.ts = now > 0 ? static_cast<uint32_t>(now) : 0;
+  rec.zone = active_zone_ < MAX_ZONES ? active_zone_ : 0;
+  rec.volume_ml = volume_ml;
+  rec.trigger = static_cast<uint8_t>(status_->trigger);
+  rec.outcome = outcome;
+  g_history.add(rec);
+}
+
 void IrrigationController::finishSession(bool fault) {
   const uint16_t vol = sessionVolumeMl();
   if (vol > 0) {
     safety_->addDailyMl(vol);
   }
-  if (!fault && vol > 0) {
-    IrrigationRecord rec;
-    rec.ts = static_cast<uint32_t>(time(nullptr));
-    rec.zone = active_zone_ < MAX_ZONES ? active_zone_ : 0;
-    rec.volume_ml = vol;
-    rec.trigger = static_cast<uint8_t>(status_->trigger);
-    g_history.add(rec);
+  uint8_t outcome = 0;
+  if (fault) {
+    switch (safety_->state()) {
+      case SafetyState::DryRun:
+        outcome = 1;
+        break;
+      case SafetyState::Timeout:
+        outcome = 2;
+        break;
+      case SafetyState::Locked:
+        outcome = 3;
+        break;
+      default:
+        outcome = 4;
+        break;
+    }
+  }
+  if (fault || vol > 0) {
+    recordSession(outcome, vol);
   }
   pump_->set(false);
   if (valves_ != nullptr) {
@@ -324,11 +347,14 @@ void IrrigationController::stop() {
 }
 
 void IrrigationController::emergencyStop() {
-  if (pump_->isOn()) {
+  if (status_->state == IrrigationState::Pumping) {
     const uint16_t vol = sessionVolumeMl();
     if (vol > 0) {
       safety_->addDailyMl(vol);
     }
+    recordSession(3, vol);
+  } else if (status_->state == IrrigationState::Valving) {
+    recordSession(3, 0);
   }
   abortSession();
   safety_->lock(SafetyState::Locked);
