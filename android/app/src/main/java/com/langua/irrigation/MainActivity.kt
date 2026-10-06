@@ -393,12 +393,26 @@ private fun PageColumn(
     title: String,
     link: String,
     modifier: Modifier,
+    onNearEnd: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val scroll = rememberScrollState()
+    if (onNearEnd != null) {
+        var armed by remember { mutableStateOf(true) }
+        LaunchedEffect(scroll.value, scroll.maxValue) {
+            val atEnd = scroll.maxValue > 0 && scroll.value >= scroll.maxValue - 160
+            if (atEnd && armed) {
+                armed = false
+                onNearEnd()
+            } else if (!atEnd) {
+                armed = true
+            }
+        }
+    }
     Column(
         modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -427,7 +441,15 @@ private fun HomePage(
     onCommand: (String) -> Unit,
     modifier: Modifier,
 ) {
-    PageColumn("首页", link, modifier) {
+    var historyShown by remember { mutableIntStateOf(20) }
+    PageColumn(
+        "首页",
+        link,
+        modifier,
+        onNearEnd = {
+            if (historyShown < history.size) historyShown += 20
+        },
+    ) {
         if (device == null) {
             HintCard("还没连上灌溉器", "打开 App 会自动连一次，也可以到「设置」里再连。")
         } else {
@@ -451,7 +473,7 @@ private fun HomePage(
                     )
                 }
             }
-            HistoryCard(history, mediaTick)
+            HistoryCard(history, mediaTick, historyShown)
         }
     }
 }
@@ -1301,15 +1323,16 @@ private fun WateringOverlay() {
 }
 
 @Composable
-private fun HistoryCard(history: List<HistUi>, mediaTick: Int) {
+private fun HistoryCard(history: List<HistUi>, mediaTick: Int, shown: Int) {
+    val visible = history.take(shown)
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("最近浇水", color = Color.White, style = MaterialTheme.typography.titleMedium)
-            Text("手机保存全部 ${history.size} 条，下面是最近 8 条。", color = Muted)
+            Text("浇水记录", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Text("共 ${history.size} 条", color = Muted)
             if (history.isEmpty()) {
                 Text("还没有记录", color = Muted)
             } else {
-                history.take(8).forEach { row ->
+                visible.forEach { row ->
                     val name = localName(row.zone, mediaTick).ifBlank { "${row.zone + 1}#" }
                     val outcome = Protocol.outcomeText(row.outcome)
                     val detail = if (outcome.isEmpty()) {
@@ -1321,6 +1344,9 @@ private fun HistoryCard(history: List<HistUi>, mediaTick: Int) {
                         "${histClock(row.ts)}  $name  ${row.ml} ml  $detail",
                         color = if (row.outcome == 0) Color.White else Warn,
                     )
+                }
+                if (visible.size < history.size) {
+                    Text("上滑加载更早的记录", color = Muted)
                 }
             }
         }
