@@ -37,8 +37,9 @@
 
 // Timing (ms)
 #define SAMPLE_INTERVAL_MS 5000
-// 浇完后先不看湿度：探头旁边会立刻被打湿，整盆还没渗匀。
-#define MOISTURE_SOAK_MS (10UL * 60UL * 1000UL)
+// 浇完后先不看湿度。默认 10 分钟，App 按实测把每盆改成 5–60 分钟。
+#define DEFAULT_SOAK_MIN 10
+#define MOISTURE_SOAK_MS (DEFAULT_SOAK_MIN * 60UL * 1000UL)
 #define AUTO_MAX_DOSES 3
 #define AUTO_DOSE_LOCKOUT_MS (60UL * 60UL * 1000UL)
 #define STATUS_PRINT_INTERVAL_MS 1000

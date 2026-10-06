@@ -249,6 +249,16 @@ void handleCommand(char *line) {
     reply("OK");
     return;
   }
+  if (sscanf(line, "soak %d %d", &a, &b) == 2) {
+    if (!zoneOk(a) || b < 5 || b > 60) {
+      reply("ERR zone");
+      return;
+    }
+    g_zone_configs[a].soak_min = static_cast<uint8_t>(b);
+    saveSettings();
+    reply("OK");
+    return;
+  }
   int c = 0;
   if (sscanf(line, "th %d %d %d", &a, &b, &c) == 3) {
     if (!zoneOk(a) || b < 0 || c < 0 || b > 100 || c > 100 || b >= c) {
@@ -477,7 +487,7 @@ CmdCb g_cmd_cb;
 size_t buildStatus(uint8_t *out, size_t cap) {
   const uint8_t n =
       g_sys_config.zone_count > MAX_ZONES ? MAX_ZONES : g_sys_config.zone_count;
-  const size_t need = 28 + static_cast<size_t>(n) * 24;
+  const size_t need = 28 + static_cast<size_t>(n) * 24 + n;
   if (cap < need) {
     return 0;
   }
@@ -543,6 +553,11 @@ size_t buildStatus(uint8_t *out, size_t cap) {
     z[9] = cfg.schedule_minute;
     strncpy(reinterpret_cast<char *>(z + 10), cfg.name, 13);
     z[23] = 0;
+    uint8_t minutes = cfg.soak_min;
+    if (minutes < 5 || minutes > 60) {
+      minutes = DEFAULT_SOAK_MIN;
+    }
+    out[28 + static_cast<size_t>(n) * 24 + i] = minutes;
   }
   return need;
 }
@@ -551,7 +566,7 @@ void notifyStatus() {
   if (!g_connected || g_status == nullptr) {
     return;
   }
-  uint8_t payload[28 + MAX_ZONES * 24];
+  uint8_t payload[28 + MAX_ZONES * 24 + MAX_ZONES];
   const size_t n = buildStatus(payload, sizeof(payload));
   if (n == 0) {
     return;

@@ -14,6 +14,7 @@ data class ZoneUi(
     val volume: Int,
     val adc: Int,
     val soaking: Boolean = false,
+    val soakMin: Int = 10,
 )
 
 data class DeviceUi(
@@ -98,9 +99,12 @@ object Protocol {
         val flags = payload[3].toInt() and 0xFF
         val active = payload[4].toInt() and 0xFF
         val zones = ArrayList<ZoneUi>(zoneCount)
+        val soakAt = 28 + zoneCount * 24
+        val hasSoak = payload.size >= soakAt + zoneCount
         for (i in 0 until zoneCount) {
             val o = 28 + i * 24
             val zf = payload[o + 3].toInt() and 0xFF
+            val soakRaw = if (hasSoak) payload[soakAt + i].toInt() and 0xFF else 10
             val nameBytes = payload.copyOfRange(o + 10, o + 24)
             val end = nameBytes.indexOf(0).let { if (it < 0) nameBytes.size else it }
             val name = nameBytes.copyOf(end).toString(Charsets.UTF_8).ifBlank { "${i + 1}# 盆" }
@@ -119,6 +123,7 @@ object Protocol {
                     volume = u16(payload, o + 4),
                     adc = u16(payload, o + 6),
                     soaking = zf and 0x08 != 0,
+                    soakMin = if (soakRaw in 5..60) soakRaw else 10,
                 )
             )
         }

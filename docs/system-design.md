@@ -273,7 +273,9 @@ stateDiagram-v2
 | 定时 | 每日 `schedule_hour:minute` | 体积 ≥ `volume_ml` |
 | 手动 | Web `POST /api/irrigate` 或 CLI `water` | 体积 ≥ 指定 mL |
 
-阈值模式浇完一轮后进入渗水期（`MOISTURE_SOAK_MS`，10 分钟）。期内不再根据湿度排队。渗水结束后若仍低于下限，再浇同样的水量，连续最多 `AUTO_MAX_DOSES`（3）轮；满 3 轮后歇 `AUTO_DOSE_LOCKOUT_MS`（1 小时）再重新计数。手动、定时和测试浇完也会等 10 分钟，避免自动立刻接上。湿度上限只用于显示「偏湿」，不提前停泵。检测并浇水不看渗水期。
+阈值模式浇完一轮后进入渗水期。默认 `DEFAULT_SOAK_MIN`（10 分钟），每盆可被 App 改成 5–60 分钟并写入 `zSk{i}`。期内不再根据湿度排队。渗水结束后若仍低于下限，再浇同样的水量，连续最多 `AUTO_MAX_DOSES`（3）轮；满 3 轮后歇 `AUTO_DOSE_LOCKOUT_MS`（1 小时）再重新计数。手动、定时和测试浇完也等该盆的渗水时间，避免自动立刻接上。湿度上限只用于显示「偏湿」，不提前停泵。检测并浇水不看渗水期。
+
+App 在浇完后若仍连着，每 20 秒记一次湿度。连续 3 分钟内变化不超过 5 个百分点，记为这次稳住用了多久；60 分钟还没稳住就按 60 分钟记。每盆留最近 12 次，至少 2 次后取 75% 分位（偏长的那一档）并向上取整成分钟，和灌溉器当前值差 2 分钟以上就写回。
 
 模式可 per-zone 组合：`auto_enabled` + `schedule_enabled`。
 
@@ -286,6 +288,7 @@ stateDiagram-v2
 | name | string(16) | Zone0 | 显示名 |
 | moisture_low | uint8 | 30 | 触发下限（%） |
 | moisture_high | uint8 | 60 | 显示用偏湿线（%），不用于停泵 |
+| soak_min | uint8 | 10 | 渗水等待（分钟），App 按实测写成 5–60 |
 | volume_ml | uint16 | 100 | 单次目标体积 |
 | auto_enabled | bool | true | 阈值模式 |
 | schedule_enabled | bool | false | 定时模式 |

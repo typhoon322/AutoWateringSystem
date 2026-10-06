@@ -87,6 +87,7 @@ object SnapshotStore {
                     put("volume", zone.volume)
                     put("adc", zone.adc)
                     put("soaking", zone.soaking)
+                    put("soakMin", zone.soakMin)
                 })
             }
         })
@@ -112,6 +113,7 @@ object SnapshotStore {
                     volume = zone.getInt("volume"),
                     adc = zone.getInt("adc"),
                     soaking = zone.optBoolean("soaking", false),
+                    soakMin = zone.optInt("soakMin", 10),
                 )
             )
         }

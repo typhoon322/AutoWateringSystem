@@ -67,6 +67,7 @@ void SettingsStore::applyDefaults(SystemContext &ctx) {
     ctx.zones[i].window_override = false;
     ctx.zones[i].win_sh = 17; ctx.zones[i].win_sm = 0;
     ctx.zones[i].win_eh = 21; ctx.zones[i].win_em = 0;
+    ctx.zones[i].soak_min = DEFAULT_SOAK_MIN;
   }
 }
 
@@ -133,6 +134,10 @@ bool SettingsStore::load(SystemContext &ctx) {
     ctx.zones[i].win_sm = prefs.getUChar(zoneKey("zWinSM", i), 0);
     ctx.zones[i].win_eh = prefs.getUChar(zoneKey("zWinEH", i), 21);
     ctx.zones[i].win_em = prefs.getUChar(zoneKey("zWinEM", i), 0);
+    ctx.zones[i].soak_min = prefs.getUChar(zoneKey("zSk", i), DEFAULT_SOAK_MIN);
+    if (ctx.zones[i].soak_min < 5 || ctx.zones[i].soak_min > 60) {
+      ctx.zones[i].soak_min = DEFAULT_SOAK_MIN;
+    }
   }
 
   return true;
@@ -177,6 +182,7 @@ bool SettingsStore::save(const SystemContext &ctx) {
     prefs.putUChar(zoneKey("zWinSM", i), ctx.zones[i].win_sm);
     prefs.putUChar(zoneKey("zWinEH", i), ctx.zones[i].win_eh);
     prefs.putUChar(zoneKey("zWinEM", i), ctx.zones[i].win_em);
+    prefs.putUChar(zoneKey("zSk", i), ctx.zones[i].soak_min);
   }
 
   return true;

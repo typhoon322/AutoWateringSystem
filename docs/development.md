@@ -121,7 +121,8 @@ flowchart TD
 | `DEFAULT_PULSES_PER_LITER` | 450 | YF-S201 典型值 |
 | `DEFAULT_DRY_RUN_SEC` | 3 | 干转判定 s |
 | `SAMPLE_INTERVAL_MS` | 5000 | 湿度采样周期 |
-| `MOISTURE_SOAK_MS` | 600000 | 浇完后忽略湿度的渗水时间 |
+| `DEFAULT_SOAK_MIN` | 10 | 每盆渗水等待分钟，App 可改成 5–60 |
+| `MOISTURE_SOAK_MS` | 600000 | 默认渗水时间，实际用每盆 `soak_min` |
 | `AUTO_MAX_DOSES` | 3 | 渗水后仍偏干时，连续自动浇水轮数 |
 | `AUTO_DOSE_LOCKOUT_MS` | 3600000 | 连续浇满后的歇泵时间 |
 | `STATUS_PRINT_INTERVAL_MS` | 1000 | 状态行周期 |
@@ -149,6 +150,7 @@ flowchart TD
 | `zSchM{i}` | uint8 | schedule_minute |
 | `zDry{i}` | uint16 | cal_dry adc |
 | `zWet{i}` | uint16 | cal_wet adc |
+| `zSk{i}` | uint8 | 渗水等待分钟，默认 10，范围 5–60 |
 | `wifiEn` | uint8 | WiFi enabled |
 | `wifiSSID` | string | SSID |
 | `wifiPass` | string | password |
@@ -372,10 +374,10 @@ GET 返回连接状态；POST 设置 `ssid`, `password`, `enabled`。
 | 特征 | UUID 尾 | 方向 | 内容 |
 |------|---------|------|------|
 | 状态 | …5502 | Notify | `A5` + 包序号 + 总包数 + 载荷切片（每片 17 字节） |
-| 命令 | …5503 | Write | ASCII/UTF-8：`detect`、`time <unix>`、`hist`、`sch <z> <HH> <MM>`、`sch <z> off`、`win <0\|1> <sh> <sm> <eh> <em>`、`limit <ml>`、`zones <n>`、`name <z> <文本>`、`auto all <0\|1>`、`wifi?`、`ssid <名>`、`pass <密码>`、`wifi <0\|1>`、`ppl <n>`、`flow 0`、`purge <0\|1>`，以及原来的浇水、阈值、泵阀、标定 |
+| 命令 | …5503 | Write | ASCII/UTF-8：`detect`、`time <unix>`、`hist`、`sch <z> <HH> <MM>`、`sch <z> off`、`soak <z> <分钟>`、`win <0\|1> <sh> <sm> <eh> <em>`、`limit <ml>`、`zones <n>`、`name <z> <文本>`、`auto all <0\|1>`、`wifi?`、`ssid <名>`、`pass <密码>`、`wifi <0\|1>`、`ppl <n>`、`flow 0`、`purge <0\|1>`，以及原来的浇水、阈值、泵阀、标定 |
 | 应答 | …5504 | Notify | `OK`、`OK <n>`、`OK none`、`H <条数>`、`R <ts> <盆> <ml> <触发> <结果> <序号>`、`W <开> <ip>`、`S <ssid>` 或 `ERR ...` |
 
-状态载荷版本 2（小端）：标志增加排气和 WiFi 已连接；含日限额、自动时段、每升脉冲、流量毫升和脉冲；每盆 24 字节（湿度、上下限、标志、水量、ADC、定时时分、名称最多 13 字节）。盆标志 bit0 自动、bit1 探头有效、bit2 定时、bit3 渗水中。
+状态载荷版本 2（小端）：标志增加排气和 WiFi 已连接；含日限额、自动时段、每升脉冲、流量毫升和脉冲；每盆 24 字节（湿度、上下限、标志、水量、ADC、定时时分、名称最多 13 字节）。盆标志 bit0 自动、bit1 探头有效、bit2 定时、bit3 渗水中。盆数据后面再附每盆 1 字节渗水分钟（5–60）。旧 App 忽略这几字节。
 
 安卓工程在 `android/`，应用名「蓝瓜智控」。打开时自动搜索并连接一次，连上后用手机 UTC 对时。首页顶部四盆一行展示实拍图或默认盆栽、手机里保存的别名和湿度，浇水时对应盆有动画。断开后仍显示上次状态，设备操作要等重新连上；别名和实拍图存在手机本地，不写入灌溉器。浇水记录在手机里按序号累积保存，灌溉器只留最近 50 条用于交接。设置里有自动时段、定时、阈值、别名、实拍图、日限额和 WiFi；盆数在设置页底部，确认后才写入。调试里有标定、泵阀、流量和排气，也可分享最近 30 天的操作和蓝牙日志。固件仍接受 `name` 命令，App 不再发送。状态通知版本 2。配网也可以仍用网页。
 

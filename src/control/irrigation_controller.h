@@ -59,6 +59,7 @@ class IrrigationController {
   bool inAutoWindow(uint8_t zone) const;
   void armSoak(uint8_t zone, IrrigateTrigger trigger);
   bool soaking(uint8_t zone, uint32_t now) const;
+  uint32_t soakMs(uint8_t zone) const;
 
   ZoneManager *zones_;
   PumpDriver *pump_;

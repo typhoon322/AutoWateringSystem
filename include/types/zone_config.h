@@ -42,6 +42,7 @@ struct ZoneConfig {
   bool window_override;             // 覆盖全局时间窗口
   uint8_t win_sh, win_sm;           // 覆盖窗口开始 HH:MM
   uint8_t win_eh, win_em;           // 覆盖窗口结束 HH:MM
+  uint8_t soak_min;                 // 渗水等待（分钟，5–60）
 };
 
 struct SystemConfig {

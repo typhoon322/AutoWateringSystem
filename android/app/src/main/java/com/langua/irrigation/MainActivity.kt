@@ -108,6 +108,7 @@ class MainActivity : ComponentActivity() {
 
     private var mediaTick by mutableIntStateOf(0)
     private var photoFor = -1
+    private var soakCounts by mutableStateOf<Map<Int, Int>>(emptyMap())
 
     private val permissionLaunch = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -147,16 +148,29 @@ class MainActivity : ComponentActivity() {
         if (device == null) {
             history = HistoryArchive.load(this)
         }
+        soakCounts = SoakLearn.counts(this)
         ble = BleClient(
             this,
             onLink = {
                 linkText = it
                 AppLog.op(this, "连接状态 $it")
+                if (it != "已连接") SoakLearn.onDisconnect()
             },
             onDevice = {
                 device = it
                 persistSnapshot()
                 AppLog.status(this, it)
+                if (linkText == "已连接") {
+                    window.decorView.post {
+                        if (linkText != "已连接") return@post
+                        val step = SoakLearn.onStatus(this, it)
+                        if (step.logged) soakCounts = SoakLearn.counts(this)
+                        step.command?.let { cmd ->
+                            AppLog.op(this, "写入渗水时间 $cmd")
+                            ble.send(cmd)
+                        }
+                    }
+                }
             },
             onReply = { raw ->
                 val text = raw.trim()
@@ -218,6 +232,7 @@ class MainActivity : ComponentActivity() {
                     wifiIp = wifiIp,
                     online = linkText == "已连接",
                     mediaTick = mediaTick,
+                    soakCounts = soakCounts,
                     onPickPhoto = { zone ->
                         AppLog.op(this, "选择实拍图 ${zone + 1}#")
                         photoFor = zone
@@ -324,6 +339,7 @@ private fun AppShell(
     wifiIp: String,
     online: Boolean,
     mediaTick: Int,
+    soakCounts: Map<Int, Int>,
     onPickPhoto: (Int) -> Unit,
     onLocalChange: () -> Unit,
     onConnect: () -> Unit,
@@ -377,7 +393,7 @@ private fun AppShell(
         },
     ) { padding ->
         when (tab) {
-            AppTab.Home -> HomePage(link, device, history, volumes, online, mediaTick, onCommand, Modifier.padding(padding))
+            AppTab.Home -> HomePage(link, device, history, volumes, online, mediaTick, soakCounts, onCommand, Modifier.padding(padding))
             AppTab.Settings -> SettingsPage(
                 link, device, lows, highs, wifiOn, wifiSsid, wifiIp, online, mediaTick,
                 onPickPhoto, onLocalChange, onConnect, onDisconnect, onCommand, Modifier.padding(padding),
@@ -423,6 +439,7 @@ private fun HomePage(
     volumes: MutableMap<Int, Int>,
     online: Boolean,
     mediaTick: Int,
+    soakCounts: Map<Int, Int>,
     onCommand: (String) -> Unit,
     modifier: Modifier,
 ) {
@@ -445,6 +462,7 @@ private fun HomePage(
                         volumes[zone.index] ?: nearestVolume(zone.volume),
                         mediaTick,
                         online,
+                        soakCounts[zone.index] ?: 0,
                         onVolume = { volumes[zone.index] = it },
                         onCommand = onCommand,
                     )
@@ -496,7 +514,7 @@ private fun SettingsPage(
             HintCard("还没有盆的设置", "连上之后可以改每盆的湿度上下限。")
         } else {
             if (!online) OfflineNote()
-            Text("低于下限按设定水量浇一轮。浇完等 10 分钟再看湿度，水管打湿探头也不会马上再浇。仍偏干会再浇，连续最多 3 轮，然后歇 1 小时。上限表示偏湿。", color = Muted)
+            Text("低于下限按设定水量浇一轮。浇完先等渗水，湿度连续 3 分钟变化不超过 5% 才算稳住。App 会记下每次用了多久，两次以后按偏长的那次自动改等待时间。上限表示偏湿。", color = Muted)
             RulesCard(device, online, onCommand)
             WifiCard(wifiOn, wifiSsid, wifiIp, device.wifiUp, online, onCommand)
             device.zones.forEach { zone ->
@@ -657,6 +675,7 @@ private fun HomeZoneCard(
     volume: Int,
     mediaTick: Int,
     online: Boolean,
+    soakCount: Int,
     onVolume: (Int) -> Unit,
     onCommand: (String) -> Unit,
 ) {
@@ -672,6 +691,11 @@ private fun HomeZoneCard(
                     Text(
                         zoneLabel(zone) + if (zone.schedule) " · 定时 %02d:%02d".format(zone.hour, zone.minute) else "",
                         color = tone,
+                    )
+                    Text(
+                        "渗水 ${zone.soakMin} 分钟" + if (soakCount > 0) " · 已记 $soakCount 次" else "",
+                        color = Muted,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 Text("${if (zone.valid) zone.pct.toString() else "--"}%", color = tone, style = MaterialTheme.typography.headlineSmall)

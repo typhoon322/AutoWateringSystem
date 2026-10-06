@@ -235,12 +235,23 @@ void IrrigationController::armSoak(uint8_t zone, IrrigateTrigger trigger) {
       soak_until_ms_[zone] = now + AUTO_DOSE_LOCKOUT_MS;
       auto_doses_[zone] = 0;
     } else {
-      soak_until_ms_[zone] = now + MOISTURE_SOAK_MS;
+      soak_until_ms_[zone] = now + soakMs(zone);
     }
   } else {
-    soak_until_ms_[zone] = now + MOISTURE_SOAK_MS;
+    soak_until_ms_[zone] = now + soakMs(zone);
     auto_doses_[zone] = 0;
   }
+}
+
+uint32_t IrrigationController::soakMs(uint8_t zone) const {
+  uint8_t minutes = DEFAULT_SOAK_MIN;
+  if (zone < MAX_ZONES) {
+    minutes = zone_configs_[zone].soak_min;
+  }
+  if (minutes < 5 || minutes > 60) {
+    minutes = DEFAULT_SOAK_MIN;
+  }
+  return static_cast<uint32_t>(minutes) * 60000UL;
 }
 
 bool IrrigationController::soaking(uint8_t zone, uint32_t now) const {
