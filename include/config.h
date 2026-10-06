@@ -37,6 +37,10 @@
 
 // Timing (ms)
 #define SAMPLE_INTERVAL_MS 5000
+// 浇完后先不看湿度：探头旁边会立刻被打湿，整盆还没渗匀。
+#define MOISTURE_SOAK_MS (10UL * 60UL * 1000UL)
+#define AUTO_MAX_DOSES 3
+#define AUTO_DOSE_LOCKOUT_MS (60UL * 60UL * 1000UL)
 #define STATUS_PRINT_INTERVAL_MS 1000
 #define CONTROLLER_TICK_MS 100
 #define LED_UPDATE_MS 500

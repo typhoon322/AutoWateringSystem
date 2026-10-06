@@ -533,6 +533,7 @@ size_t buildStatus(uint8_t *out, size_t cap) {
     if (cfg.auto_enabled) zf |= 0x01;
     if (st.sensor_valid) zf |= 0x02;
     if (cfg.schedule_enabled) zf |= 0x04;
+    if (g_controller.zoneSoaking(i)) zf |= 0x08;
     z[3] = zf;
     z[4] = static_cast<uint8_t>(cfg.volume_ml & 0xFF);
     z[5] = static_cast<uint8_t>(cfg.volume_ml >> 8);

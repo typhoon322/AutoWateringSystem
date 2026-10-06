@@ -31,6 +31,8 @@ class IrrigationController {
   bool requestSchedule(uint8_t zone, uint16_t volume_ml);
   bool requestTest(uint8_t zone, uint16_t volume_ml);
   void resetScheduleFlags();
+  // 刚浇完的盆在渗水期内，自动逻辑不看湿度。
+  bool zoneSoaking(uint8_t zone) const;
 
   // 采样后把已标定且低于下限的盆排队。locked / uncalibrated 时 queued 无意义。
   enum class DetectCode : uint8_t { Locked, Uncalibrated, Done };
@@ -55,6 +57,8 @@ class IrrigationController {
   void syncActuatorStatus();
   uint16_t sessionVolumeMl() const;
   bool inAutoWindow(uint8_t zone) const;
+  void armSoak(uint8_t zone, IrrigateTrigger trigger);
+  bool soaking(uint8_t zone, uint32_t now) const;
 
   ZoneManager *zones_;
   PumpDriver *pump_;
@@ -76,4 +80,6 @@ class IrrigationController {
   uint32_t pump_start_ms_ = 0;
   uint32_t done_until_ms_ = 0;
   int last_yday_ = -1;
+  uint32_t soak_until_ms_[MAX_ZONES] = {};
+  uint8_t auto_doses_[MAX_ZONES] = {};
 };

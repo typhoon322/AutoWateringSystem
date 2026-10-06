@@ -222,7 +222,41 @@ void IrrigationController::recordSession(uint8_t outcome, uint16_t volume_ml) {
   g_history.add(rec);
 }
 
+void IrrigationController::armSoak(uint8_t zone, IrrigateTrigger trigger) {
+  if (zone >= MAX_ZONES) {
+    return;
+  }
+  const uint32_t now = millis();
+  if (trigger == IrrigateTrigger::Threshold) {
+    if (auto_doses_[zone] < 255) {
+      ++auto_doses_[zone];
+    }
+    if (auto_doses_[zone] >= AUTO_MAX_DOSES) {
+      soak_until_ms_[zone] = now + AUTO_DOSE_LOCKOUT_MS;
+      auto_doses_[zone] = 0;
+    } else {
+      soak_until_ms_[zone] = now + MOISTURE_SOAK_MS;
+    }
+  } else {
+    soak_until_ms_[zone] = now + MOISTURE_SOAK_MS;
+    auto_doses_[zone] = 0;
+  }
+}
+
+bool IrrigationController::soaking(uint8_t zone, uint32_t now) const {
+  if (zone >= MAX_ZONES) {
+    return false;
+  }
+  return static_cast<int32_t>(soak_until_ms_[zone] - now) > 0;
+}
+
+bool IrrigationController::zoneSoaking(uint8_t zone) const {
+  return soaking(zone, millis());
+}
+
 void IrrigationController::finishSession(bool fault) {
+  const uint8_t zone = active_zone_;
+  const IrrigateTrigger trigger = status_->trigger;
   const uint16_t vol = sessionVolumeMl();
   if (vol > 0) {
     safety_->addDailyMl(vol);
@@ -246,6 +280,9 @@ void IrrigationController::finishSession(bool fault) {
   }
   if (fault || vol > 0) {
     recordSession(outcome, vol);
+  }
+  if (!fault && vol > 0) {
+    armSoak(zone, trigger);
   }
   pump_->set(false);
   if (valves_ != nullptr) {
@@ -324,9 +361,14 @@ void IrrigationController::checkAutoTriggers() {
       }
     }
 
-    if (zc.auto_enabled && zones_->needsWater(z) && inAutoWindow(z)) {
-      enqueue(z, zc.volume_ml, IrrigateTrigger::Threshold);
+    if (!zc.auto_enabled || !inAutoWindow(z) || soaking(z, millis())) {
+      continue;
     }
+    if (!zones_->needsWater(z)) {
+      auto_doses_[z] = 0;
+      continue;
+    }
+    enqueue(z, zc.volume_ml, IrrigateTrigger::Threshold);
   }
 }
 
@@ -406,14 +448,7 @@ void IrrigationController::tick() {
       return;
     }
 
-    if (status_->trigger == IrrigateTrigger::Threshold && active_zone_ < config_->zone_count) {
-      if (zone_status_[active_zone_].sensor_valid &&
-          zone_status_[active_zone_].moisture_pct >= zone_configs_[active_zone_].moisture_high) {
-        finishSession(false);
-        return;
-      }
-    }
-
+    // 浇水时探头会被局部打湿，读数不能用来提前停泵。这一轮只按目标水量停。
     if (vol >= target_volume_ml_) {
       finishSession(false);
       return;

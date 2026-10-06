@@ -10,7 +10,10 @@
 
 #include "bus/i2c_bus.h"
 #include "config.h"
+#include "control/irrigation_controller.h"
 #include "types/zone_config.h"
+
+extern IrrigationController g_controller;
 
 namespace {
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C g_oled(U8G2_R2, U8X8_PIN_NONE);
@@ -128,7 +131,10 @@ void drawZonePages(const ZoneStatus *zones, const ZoneConfig *configs, uint8_t z
       break;
     }
     char line[28];
-    if (zones[i].sensor_valid) {
+    if (zones[i].sensor_valid && g_controller.zoneSoaking(i)) {
+      snprintf(line, sizeof(line), "%u# 渗水 %u%%", static_cast<unsigned>(i + 1),
+               zones[i].moisture_pct);
+    } else if (zones[i].sensor_valid) {
       snprintf(line, sizeof(line), "%u# %s %u%% %s", static_cast<unsigned>(i + 1),
                feelText(zones[i], configs[i]), zones[i].moisture_pct,
                configs[i].auto_enabled ? "自动" : "手动");

@@ -86,6 +86,7 @@ object SnapshotStore {
                     put("minute", zone.minute)
                     put("volume", zone.volume)
                     put("adc", zone.adc)
+                    put("soaking", zone.soaking)
                 })
             }
         })
@@ -110,6 +111,7 @@ object SnapshotStore {
                     minute = zone.getInt("minute"),
                     volume = zone.getInt("volume"),
                     adc = zone.getInt("adc"),
+                    soaking = zone.optBoolean("soaking", false),
                 )
             )
         }

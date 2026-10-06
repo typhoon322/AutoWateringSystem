@@ -496,7 +496,7 @@ private fun SettingsPage(
             HintCard("还没有盆的设置", "连上之后可以改每盆的湿度上下限。")
         } else {
             if (!online) OfflineNote()
-            Text("低于下限自动浇，高于上限视为偏湿。定时和自动时段在每张卡片里。", color = Muted)
+            Text("低于下限按设定水量浇一轮。浇完等 10 分钟再看湿度，水管打湿探头也不会马上再浇。仍偏干会再浇，连续最多 3 轮，然后歇 1 小时。上限表示偏湿。", color = Muted)
             RulesCard(device, online, onCommand)
             WifiCard(wifiOn, wifiSsid, wifiIp, device.wifiUp, online, onCommand)
             device.zones.forEach { zone ->
@@ -1255,6 +1255,9 @@ private fun PotTile(zone: ZoneUi, watering: Boolean, mediaTick: Int, modifier: M
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                 )
+                if (zone.soaking) {
+                    Text("渗水中", color = Color(0xFF7AD7FF), fontSize = 10.sp, maxLines = 1)
+                }
             }
         }
     }
@@ -1329,11 +1332,14 @@ private fun zoneTone(zone: ZoneUi): Color = when {
     else -> Accent
 }
 
-private fun zoneLabel(zone: ZoneUi): String = when {
-    !zone.valid -> "未接"
-    zone.pct < zone.low -> "偏干"
-    zone.pct > zone.high -> "偏湿"
-    else -> "正常"
+private fun zoneLabel(zone: ZoneUi): String {
+    val base = when {
+        !zone.valid -> "未接"
+        zone.pct < zone.low -> "偏干"
+        zone.pct > zone.high -> "偏湿"
+        else -> "正常"
+    }
+    return if (zone.soaking) "$base · 渗水中" else base
 }
 
 private data class Notice(val id: Int, val text: String)

@@ -13,6 +13,7 @@ data class ZoneUi(
     val minute: Int,
     val volume: Int,
     val adc: Int,
+    val soaking: Boolean = false,
 )
 
 data class DeviceUi(
@@ -117,6 +118,7 @@ object Protocol {
                     minute = payload[o + 9].toInt() and 0xFF,
                     volume = u16(payload, o + 4),
                     adc = u16(payload, o + 6),
+                    soaking = zf and 0x08 != 0,
                 )
             )
         }

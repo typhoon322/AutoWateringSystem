@@ -52,7 +52,7 @@
 | ID | 功能 | 说明 |
 |----|------|------|
 | F1 | 土壤湿度采集 | 电容式传感器，ADC 读取，支持干/湿两点校准 |
-| F2 | 阈值自动浇水 | 湿度 < 下限时启动，达到上限或目标体积后停止 |
+| F2 | 阈值自动浇水 | 湿度 < 下限时按设定水量浇一轮；浇完等 10 分钟渗水再判断，不拿浇水中的探头读数停泵 |
 | F3 | 定时定量浇水 | 按 HH:MM 调度，每次固定 mL |
 | F4 | 手动浇水 | Web / CLI 指定分区与体积 |
 | F5 | 流量计闭环 | 脉冲计数换算体积，达到目标停泵 |
@@ -248,7 +248,7 @@ stateDiagram-v2
     Checking --> Valving: 需要浇水
     Checking --> Idle: 无需浇水
     Valving --> Pumping: 阀稳定 500ms
-    Pumping --> Done: 体积达标或湿度达标
+    Pumping --> Done: 体积达标
     Pumping --> Fault: 超时或干转
     Done --> Idle: 冷却完成
     Fault --> Idle: 手动复位 stop
@@ -259,18 +259,21 @@ stateDiagram-v2
 **Pumping 子循环（每 100 ms）：**
 
 1. 读流量计累计体积
-2. 若 `volume >= target_ml` → 停泵、关阀 → Done
-3. 若 `moisture >= upper_threshold` 且模式含阈值 → 停泵、关阀 → Done
-4. 若 `elapsed > max_run_sec` → 停泵 → Fault（TIMEOUT）
-5. 若 `pump_on && elapsed > 3s && pulses == 0` → 停泵 → Fault（DRY_RUN）
+2. 若 `volume >= target_ml` → 停泵、关阀 → Done，并进入渗水等待
+3. 若 `elapsed > max_run_sec` → 停泵 → Fault（TIMEOUT）
+4. 若 `pump_on && elapsed > 3s && pulses == 0` → 停泵 → Fault（DRY_RUN）
+
+浇水过程中的湿度不参与停泵。探头若正对出水口，读数会立刻到 100%，不能代表整盆。
 
 ### 4.3 浇水模式
 
 | 模式 | 触发 | 停止条件 |
 |------|------|----------|
-| 阈值 | 湿度 < `moisture_low` | 湿度 ≥ `moisture_high` **或** 体积 ≥ `volume_ml` |
+| 阈值 | 渗水期结束后湿度 < `moisture_low` | 体积 ≥ `volume_ml` |
 | 定时 | 每日 `schedule_hour:minute` | 体积 ≥ `volume_ml` |
 | 手动 | Web `POST /api/irrigate` 或 CLI `water` | 体积 ≥ 指定 mL |
+
+阈值模式浇完一轮后进入渗水期（`MOISTURE_SOAK_MS`，10 分钟）。期内不再根据湿度排队。渗水结束后若仍低于下限，再浇同样的水量，连续最多 `AUTO_MAX_DOSES`（3）轮；满 3 轮后歇 `AUTO_DOSE_LOCKOUT_MS`（1 小时）再重新计数。手动、定时和测试浇完也会等 10 分钟，避免自动立刻接上。湿度上限只用于显示「偏湿」，不提前停泵。检测并浇水不看渗水期。
 
 模式可 per-zone 组合：`auto_enabled` + `schedule_enabled`。
 
@@ -282,7 +285,7 @@ stateDiagram-v2
 |------|------|------|------|
 | name | string(16) | Zone0 | 显示名 |
 | moisture_low | uint8 | 30 | 触发下限（%） |
-| moisture_high | uint8 | 60 | 停止上限（%） |
+| moisture_high | uint8 | 60 | 显示用偏湿线（%），不用于停泵 |
 | volume_ml | uint16 | 100 | 单次目标体积 |
 | auto_enabled | bool | true | 阈值模式 |
 | schedule_enabled | bool | false | 定时模式 |
