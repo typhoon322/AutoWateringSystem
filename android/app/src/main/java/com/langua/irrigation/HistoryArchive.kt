@@ -16,6 +16,14 @@ object HistoryArchive {
         return sorted()
     }
 
+    fun clear(context: Context) {
+        rows.clear()
+        seqs.clear()
+        legacy.clear()
+        loaded = true
+        File(context.filesDir, FILE).delete()
+    }
+
     fun merge(context: Context, incoming: List<HistUi>): List<HistUi> {
         ensure(context)
         val fresh = incoming.filter { remember(it) }

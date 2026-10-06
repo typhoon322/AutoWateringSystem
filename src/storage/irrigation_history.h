@@ -20,6 +20,7 @@ class IrrigationHistory {
  public:
   bool begin();
   void add(const IrrigationRecord& r);
+  void clear();  // 只清记录，序号继续往后走
   uint8_t count() const { return count_; }
   const IrrigationRecord* get(uint8_t i) const;  // 0=最新
 

@@ -77,6 +77,9 @@ void SafetyMonitor::addDailyMl(uint32_t ml) { daily_ml_ += ml; }
 void SafetyMonitor::resetDailyIfNewDay() {
   time_t now;
   time(&now);
+  if (now < 1700000000L) {
+    return;
+  }
   struct tm ti;
   localtime_r(&now, &ti);
   const int day = ti.tm_yday;

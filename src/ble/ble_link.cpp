@@ -146,7 +146,8 @@ void handleCommand(char *line) {
     ++line;
   }
   if (!g_selfcheck.done && strcmp(line, "estop") != 0 && strcmp(line, "stop") != 0 &&
-      strncmp(line, "time ", 5) != 0 && strcmp(line, "hist") != 0 && strcmp(line, "wifi?") != 0) {
+      strncmp(line, "time ", 5) != 0 && strcmp(line, "hist") != 0 &&
+      strcmp(line, "hist clear") != 0 && strcmp(line, "wifi?") != 0) {
     reply("ERR selfcheck");
     return;
   }
@@ -320,6 +321,11 @@ void handleCommand(char *line) {
     }
     saveSettings();
     reply("OK");
+    return;
+  }
+  if (strcmp(line, "hist clear") == 0) {
+    g_history.clear();
+    reply("CLEARED");
     return;
   }
   if (strcmp(line, "hist") == 0) {
@@ -511,6 +517,7 @@ size_t buildStatus(uint8_t *out, size_t cap) {
   if (g_safety.isLocked()) flags |= 0x04;
   if (g_sys_status.purge_on) flags |= 0x08;
   if (WiFi.status() == WL_CONNECTED) flags |= 0x10;
+  if (time(nullptr) >= 1700000000L) flags |= 0x20;
   out[3] = flags;
   out[4] = g_sys_status.active_valve < 0 ? 255 : static_cast<uint8_t>(g_sys_status.active_valve);
   out[5] = g_sys_status.queue_len;

@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
     private var device by mutableStateOf<DeviceUi?>(null)
     private var history by mutableStateOf<List<HistUi>>(emptyList())
     private var histLeft = 0
+    private var dropHistTail = false
     private val histBuf = mutableListOf<HistUi>()
     private var wifiOn by mutableStateOf(true)
     private var wifiSsid by mutableStateOf("")
@@ -166,13 +167,23 @@ class MainActivity : ComponentActivity() {
             onReply = { raw ->
                 val text = raw.trim()
                 when {
+                    text == "CLEARED" -> {
+                        dropHistTail = true
+                        histLeft = 0
+                        histBuf.clear()
+                        HistoryArchive.clear(this)
+                        history = emptyList()
+                        persistSnapshot()
+                        AppLog.op(this, "清空浇水记录")
+                    }
                     text.startsWith("H ") -> {
+                        dropHistTail = false
                         histLeft = text.removePrefix("H ").toIntOrNull() ?: 0
                         histBuf.clear()
                     }
                     text.startsWith("R ") -> {
                         val p = text.removePrefix("R ").split(" ")
-                        if (p.size >= 4) {
+                        if (!dropHistTail && p.size >= 4) {
                             histBuf.add(
                                 HistUi(
                                     ts = p[0].toLongOrNull() ?: 0L,
@@ -337,6 +348,7 @@ private fun AppShell(
 ) {
     var tab by remember { mutableStateOf(AppTab.Home) }
     var showHistory by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
     val volumes = remember { mutableStateMapOf<Int, Int>() }
     val lows = remember { mutableStateMapOf<Int, String>() }
     val highs = remember { mutableStateMapOf<Int, String>() }
@@ -387,11 +399,16 @@ private fun AppShell(
     ) { padding ->
         if (showHistory) {
             BackHandler { showHistory = false }
-            HistoryPage(history, mediaTick, { showHistory = false }, Modifier.padding(padding))
+            HistoryPage(
+                history, mediaTick, online,
+                { showHistory = false },
+                { confirmClear = true },
+                Modifier.padding(padding),
+            )
         } else when (tab) {
             AppTab.Home -> HomePage(
                 link, device, history, volumes, online, mediaTick,
-                { showHistory = true }, onCommand, Modifier.padding(padding),
+                { showHistory = true }, { confirmClear = true }, onCommand, Modifier.padding(padding),
             )
             AppTab.Settings -> SettingsPage(
                 link, device, lows, highs, wifiOn, wifiSsid, wifiIp, online, mediaTick,
@@ -399,6 +416,28 @@ private fun AppShell(
             )
             AppTab.Debug -> DebugPage(link, device, online, onCommand, Modifier.padding(padding))
         }
+    }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            properties = DialogProperties(dismissOnClickOutside = false),
+            containerColor = CardBg,
+            titleContentColor = Color.White,
+            textContentColor = Color.White,
+            title = { Text("清空浇水记录") },
+            text = {
+                Text("这台手机上的全部记录，以及灌溉器里最近 50 条，都会删掉，不能恢复。别名、实拍图和渗水时间不动。另一台手机里已经存下的，要在那台手机上再清一次。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = false
+                    onCommand("hist clear")
+                }) { Text("确认清空", color = Warn) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) { Text("取消", color = Muted) }
+            },
+        )
     }
 }
 
@@ -439,6 +478,7 @@ private fun HomePage(
     online: Boolean,
     mediaTick: Int,
     onOpenHistory: () -> Unit,
+    onClearHistory: () -> Unit,
     onCommand: (String) -> Unit,
     modifier: Modifier,
 ) {
@@ -466,7 +506,7 @@ private fun HomePage(
                     )
                 }
             }
-            HistoryCard(history, mediaTick, onOpenHistory)
+            HistoryCard(history, mediaTick, online, onOpenHistory, onClearHistory)
         }
     }
 }
@@ -588,6 +628,9 @@ private fun StatusCard(device: DeviceUi, online: Boolean, onCommand: (String) ->
                 Column {
                     Text("今日浇水", color = Color.White, style = MaterialTheme.typography.titleMedium)
                     Text("${Protocol.stateText(device.state)} · ${Protocol.safetyText(device.safety)}", color = tone)
+                    if (online && !device.clockReady) {
+                        Text("还没对时，定时和按时段的自动浇水先停着", color = Warn)
+                    }
                     if (device.sessionMl > 0) {
                         Text("本次 ${device.sessionMl} ml", color = Muted)
                     }
@@ -1316,7 +1359,13 @@ private fun WateringOverlay() {
 }
 
 @Composable
-private fun HistoryCard(history: List<HistUi>, mediaTick: Int, onOpen: () -> Unit) {
+private fun HistoryCard(
+    history: List<HistUi>,
+    mediaTick: Int,
+    online: Boolean,
+    onOpen: () -> Unit,
+    onClear: () -> Unit,
+) {
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -1327,9 +1376,12 @@ private fun HistoryCard(history: List<HistUi>, mediaTick: Int, onOpen: () -> Uni
                 Text("还没有记录", color = Muted)
             } else {
                 history.take(3).forEach { HistoryLine(it, mediaTick) }
-                if (history.size > 3) {
-                    TextButton(onClick = onOpen, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                        Text("查看全部")
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (history.size > 3) {
+                        TextButton(onClick = onOpen, contentPadding = PaddingValues(0.dp)) { Text("查看全部") }
+                    }
+                    TextButton(onClick = onClear, enabled = online, contentPadding = PaddingValues(0.dp)) {
+                        Text("清空", color = if (online) Warn else Muted)
                     }
                 }
             }
@@ -1341,7 +1393,9 @@ private fun HistoryCard(history: List<HistUi>, mediaTick: Int, onOpen: () -> Uni
 private fun HistoryPage(
     history: List<HistUi>,
     mediaTick: Int,
+    online: Boolean,
     onBack: () -> Unit,
+    onClear: () -> Unit,
     modifier: Modifier,
 ) {
     var shown by remember { mutableIntStateOf(30) }
@@ -1354,12 +1408,22 @@ private fun HistoryPage(
             }
     }
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onBack, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
                 Text("返回")
             }
             Text("浇水记录", color = Color.White, style = MaterialTheme.typography.headlineSmall)
             Text("共 ${history.size} 条", color = Muted)
+            Spacer(Modifier.weight(1f))
+            if (history.isNotEmpty()) {
+                TextButton(onClick = onClear, enabled = online, contentPadding = PaddingValues(0.dp)) {
+                    Text("清空", color = if (online) Warn else Muted)
+                }
+            }
         }
         if (history.isEmpty()) {
             Text("还没有记录", color = Muted)

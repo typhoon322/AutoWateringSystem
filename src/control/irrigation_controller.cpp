@@ -204,6 +204,9 @@ bool IrrigationController::inAutoWindow(uint8_t zone) const {
   }
   time_t now;
   time(&now);
+  if (now < 1700000000L) {
+    return false;  // 还没对时，不按 1970 年的钟去卡时段
+  }
   struct tm ti;
   localtime_r(&now, &ti);
   const int cur = ti.tm_hour * 60 + ti.tm_min;
@@ -358,16 +361,19 @@ void IrrigationController::checkAutoTriggers() {
   time(&now);
   struct tm ti;
   localtime_r(&now, &ti);
+  const bool clock_ok = now >= 1700000000L;
 
-  if (last_yday_ >= 0 && ti.tm_yday != last_yday_) {
-    resetScheduleFlags();
+  if (clock_ok) {
+    if (last_yday_ >= 0 && ti.tm_yday != last_yday_) {
+      resetScheduleFlags();
+    }
+    last_yday_ = ti.tm_yday;
   }
-  last_yday_ = ti.tm_yday;
 
   for (uint8_t z = 0; z < config_->zone_count; ++z) {
     ZoneConfig &zc = zone_configs_[z];
 
-    if (zc.schedule_enabled && !zc.schedule_fired_today &&
+    if (clock_ok && zc.schedule_enabled && !zc.schedule_fired_today &&
         static_cast<uint8_t>(ti.tm_hour) == zc.schedule_hour &&
         static_cast<uint8_t>(ti.tm_min) == zc.schedule_minute) {
       if (enqueue(z, zc.volume_ml, IrrigateTrigger::Schedule)) {

@@ -71,6 +71,7 @@ object SnapshotStore {
         put("ppl", device.ppl)
         put("flowMl", device.flowMl)
         put("pulses", device.pulses)
+        put("clockReady", device.clockReady)
         put("zones", JSONArray().apply {
             device.zones.forEach { zone ->
                 put(JSONObject().apply {
@@ -145,6 +146,7 @@ object SnapshotStore {
             flowMl = obj.getInt("flowMl"),
             pulses = obj.getLong("pulses"),
             zones = zones,
+            clockReady = obj.optBoolean("clockReady", false),
         )
     }
 

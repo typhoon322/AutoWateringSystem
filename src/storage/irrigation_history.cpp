@@ -95,6 +95,11 @@ void IrrigationHistory::add(const IrrigationRecord& r) {
   persist();
 }
 
+void IrrigationHistory::clear() {
+  count_ = 0;
+  persist();
+}
+
 void IrrigationHistory::persist() {
   uint8_t raw[1 + kMax * sizeof(IrrigationRecord)];
   raw[0] = count_;

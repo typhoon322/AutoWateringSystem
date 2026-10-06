@@ -42,6 +42,7 @@ data class DeviceUi(
     val flowMl: Int,
     val pulses: Long,
     val zones: List<ZoneUi>,
+    val clockReady: Boolean = false,
 )
 
 data class HistUi(
@@ -158,6 +159,7 @@ object Protocol {
             flowMl = u16(payload, 22),
             pulses = u32(payload, 24),
             zones = zones,
+            clockReady = flags and 0x20 != 0,
         )
     }
 
