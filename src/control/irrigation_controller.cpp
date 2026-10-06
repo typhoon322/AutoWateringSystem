@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "config.h"
+#include "control/soak_learn.h"
 #include "storage/irrigation_history.h"
 
 IrrigationController::IrrigationController(ZoneManager *zones, PumpDriver *pump, ValveDriver *valves,
@@ -147,6 +148,7 @@ void IrrigationController::resetScheduleFlags() {
 }
 
 void IrrigationController::startSession(uint8_t zone, uint16_t volume_ml, IrrigateTrigger trigger) {
+  soak_learn_on_dose_started(zone);
   active_zone_ = zone;
   target_volume_ml_ = volume_ml > 0 ? volume_ml : zone_configs_[zone].volume_ml;
   status_->active_zone = static_cast<int8_t>(zone);
@@ -294,6 +296,7 @@ void IrrigationController::finishSession(bool fault) {
   }
   if (!fault && vol > 0) {
     armSoak(zone, trigger);
+    soak_learn_on_dose_finished(zone);
   }
   pump_->set(false);
   if (valves_ != nullptr) {

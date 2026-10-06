@@ -27,6 +27,7 @@
 | `src/actuator/valve_driver.*` | wiring, development, system-design | 电磁阀互锁 |
 | `src/control/zone_manager.*` | system-design, development | 分区管理 |
 | `src/control/irrigation_controller.*` | system-design, development, user-manual | 状态机、浇水模式 |
+| `src/control/soak_learn.*` | system-design, development, user-manual | 渗水时间统计与暂停 |
 | `src/safety/safety_monitor.*` | system-design, user-manual | 安全策略、故障码 |
 | `src/storage/settings_store.*` | development | NVS 键名 |
 | `src/ble/ble_link.*` | development, user-manual | BLE 协议、安卓 App 替代 Web 家庭页 |
@@ -101,4 +102,4 @@
 | 2026-10-06 | 浇水结束或故障后重新拉取记录；保存别名用主按钮 |
 | 2026-10-06 | 自动浇水按水量停，浇完渗水 10 分钟再判断；连续最多 3 轮 |
 | 2026-10-06 | App 按湿度稳住时间自动改每盆渗水等待，偏差 5 个百分点 |
-| 2026-10-06 | 渗水时间算稳后暂停；每盆可重新计算 |
+| 2026-10-06 | 渗水时间改由灌溉器统计，手机断开也继续；算稳后暂停 |

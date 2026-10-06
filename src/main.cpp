@@ -7,6 +7,7 @@
 #include "cli/serial_cli.h"
 #include "config.h"
 #include "control/irrigation_controller.h"
+#include "control/soak_learn.h"
 #include "control/stress_test.h"
 #include "control/zone_manager.h"
 #include "safety/safety_monitor.h"
@@ -211,6 +212,7 @@ void setup() {
 
   g_safety.begin(g_sys_config.daily_limit_ml, g_sys_config.max_run_sec, g_sys_config.dry_run_sec);
   g_controller.begin();
+  soak_learn_begin();
   g_cli.begin(&g_ctx_ex);
   g_web.begin(&g_ctx_ex);
   g_stress.begin(&g_ctx_ex);
@@ -264,6 +266,7 @@ void loop() {
   if (now - last_sample_ms >= SAMPLE_INTERVAL_MS) {
     last_sample_ms = now;
     g_zone_manager.sampleAll();
+    soak_learn_tick(g_zone_status, g_sys_config.zone_count, g_zone_configs);
   }
 
   if (now - last_tick_ms >= CONTROLLER_TICK_MS) {

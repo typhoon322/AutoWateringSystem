@@ -12,6 +12,7 @@
 #include "actuator/valve_driver.h"
 #include "config.h"
 #include "control/irrigation_controller.h"
+#include "control/soak_learn.h"
 #include "control/zone_manager.h"
 #include "safety/safety_monitor.h"
 #include "safety/selfcheck.h"
@@ -246,6 +247,15 @@ void handleCommand(char *line) {
     }
     g_zone_configs[a].volume_ml = static_cast<uint16_t>(b);
     saveSettings();
+    reply("OK");
+    return;
+  }
+  if (strstr(line, "reset") != nullptr && sscanf(line, "soak %d reset", &a) == 1) {
+    if (!zoneOk(a)) {
+      reply("ERR zone");
+      return;
+    }
+    soak_learn_restart(static_cast<uint8_t>(a));
     reply("OK");
     return;
   }
@@ -487,7 +497,7 @@ CmdCb g_cmd_cb;
 size_t buildStatus(uint8_t *out, size_t cap) {
   const uint8_t n =
       g_sys_config.zone_count > MAX_ZONES ? MAX_ZONES : g_sys_config.zone_count;
-  const size_t need = 28 + static_cast<size_t>(n) * 24 + n;
+  const size_t need = 28 + static_cast<size_t>(n) * 24 + static_cast<size_t>(n) * 2;
   if (cap < need) {
     return 0;
   }
@@ -558,6 +568,14 @@ size_t buildStatus(uint8_t *out, size_t cap) {
       minutes = DEFAULT_SOAK_MIN;
     }
     out[28 + static_cast<size_t>(n) * 24 + i] = minutes;
+    uint8_t meta = soak_learn_count(i) & 0x1F;
+    if (soak_learn_watching(i)) {
+      meta |= 0x40;
+    }
+    if (soak_learn_paused(i)) {
+      meta |= 0x80;
+    }
+    out[28 + static_cast<size_t>(n) * 24 + n + i] = meta;
   }
   return need;
 }
@@ -566,7 +584,7 @@ void notifyStatus() {
   if (!g_connected || g_status == nullptr) {
     return;
   }
-  uint8_t payload[28 + MAX_ZONES * 24 + MAX_ZONES];
+  uint8_t payload[28 + MAX_ZONES * 24 + MAX_ZONES * 2];
   const size_t n = buildStatus(payload, sizeof(payload));
   if (n == 0) {
     return;

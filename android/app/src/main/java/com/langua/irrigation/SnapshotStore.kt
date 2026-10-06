@@ -88,6 +88,9 @@ object SnapshotStore {
                     put("adc", zone.adc)
                     put("soaking", zone.soaking)
                     put("soakMin", zone.soakMin)
+                    put("soakCount", zone.soakCount)
+                    put("soakPaused", zone.soakPaused)
+                    put("soakWatching", zone.soakWatching)
                 })
             }
         })
@@ -114,6 +117,9 @@ object SnapshotStore {
                     adc = zone.getInt("adc"),
                     soaking = zone.optBoolean("soaking", false),
                     soakMin = zone.optInt("soakMin", 10),
+                    soakCount = zone.optInt("soakCount", 0),
+                    soakPaused = zone.optBoolean("soakPaused", false),
+                    soakWatching = zone.optBoolean("soakWatching", false),
                 )
             )
         }
