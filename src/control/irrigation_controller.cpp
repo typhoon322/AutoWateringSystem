@@ -102,6 +102,44 @@ bool IrrigationController::requestTest(uint8_t zone, uint16_t volume_ml) {
   return enqueue(zone, volume_ml, IrrigateTrigger::Test);
 }
 
+IrrigationController::DetectOutcome IrrigationController::detectAndWater() {
+  DetectOutcome out{DetectCode::Done, 0};
+  if (safety_->isLocked() || status_->state == IrrigationState::Fault) {
+    out.code = DetectCode::Locked;
+    return out;
+  }
+  zones_->sampleAll();
+  bool calibrated = false;
+  for (uint8_t i = 0; i < config_->zone_count; ++i) {
+    const ZoneConfig &zc = zone_configs_[i];
+    if (zc.cal_dry != DEFAULT_CAL_DRY && zc.cal_wet != DEFAULT_CAL_WET && zc.cal_dry != zc.cal_wet) {
+      calibrated = true;
+      break;
+    }
+  }
+  if (!calibrated) {
+    out.code = DetectCode::Uncalibrated;
+    return out;
+  }
+  for (uint8_t i = 0; i < config_->zone_count; ++i) {
+    const ZoneConfig &zc = zone_configs_[i];
+    const ZoneStatus &st = zone_status_[i];
+    if (!st.sensor_valid) {
+      continue;
+    }
+    if (zc.cal_dry == DEFAULT_CAL_DRY || zc.cal_wet == DEFAULT_CAL_WET || zc.cal_dry == zc.cal_wet) {
+      continue;
+    }
+    if (st.moisture_pct >= zc.moisture_low) {
+      continue;
+    }
+    if (requestManual(i, zc.volume_ml)) {
+      ++out.queued;
+    }
+  }
+  return out;
+}
+
 void IrrigationController::resetScheduleFlags() {
   for (uint8_t i = 0; i < config_->zone_count; ++i) {
     zone_configs_[i].schedule_fired_today = false;

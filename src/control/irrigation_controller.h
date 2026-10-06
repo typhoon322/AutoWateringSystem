@@ -32,6 +32,14 @@ class IrrigationController {
   bool requestTest(uint8_t zone, uint16_t volume_ml);
   void resetScheduleFlags();
 
+  // 采样后把已标定且低于下限的盆排队。locked / uncalibrated 时 queued 无意义。
+  enum class DetectCode : uint8_t { Locked, Uncalibrated, Done };
+  struct DetectOutcome {
+    DetectCode code;
+    uint8_t queued;
+  };
+  DetectOutcome detectAndWater();
+
   const char *stateText() const;
 
  private:

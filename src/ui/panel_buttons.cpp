@@ -7,15 +7,10 @@
 
 #include "config.h"
 #include "control/irrigation_controller.h"
-#include "control/zone_manager.h"
-#include "safety/safety_monitor.h"
 #include "storage/settings_store.h"
-#include "types/zone_config.h"
 #include "ui/status_oled.h"
 
-extern ZoneManager g_zone_manager;
 extern IrrigationController g_controller;
-extern SafetyMonitor g_safety;
 extern SettingsStore g_settings;
 extern SystemConfig g_sys_config;
 extern ZoneConfig g_zone_configs[MAX_ZONES];
@@ -38,59 +33,28 @@ struct Btn {
 Btn g_action{PIN_BTN_ACTION, false, false, 0, 0, false};
 Btn g_estop{PIN_BTN_ESTOP, false, false, 0, 0, false};
 
-bool zoneIsDry(uint8_t i) {
-  if (i >= g_sys_config.zone_count) {
-    return false;
-  }
-  if (!g_zone_status[i].sensor_valid) {
-    return false;
-  }
-  const ZoneConfig &zc = g_zone_configs[i];
-  if (zc.cal_dry == DEFAULT_CAL_DRY || zc.cal_wet == DEFAULT_CAL_WET || zc.cal_dry == zc.cal_wet) {
-    return false;
-  }
-  return g_zone_status[i].moisture_pct < zc.moisture_low;
-}
-
-bool anyCalibrated() {
-  for (uint8_t i = 0; i < g_sys_config.zone_count; ++i) {
-    const ZoneConfig &zc = g_zone_configs[i];
-    if (zc.cal_dry != DEFAULT_CAL_DRY && zc.cal_wet != DEFAULT_CAL_WET && zc.cal_dry != zc.cal_wet) {
-      return true;
-    }
-  }
-  return false;
-}
-
 void onActionShort() {
-  if (g_safety.isLocked() || g_sys_status.state == IrrigationState::Fault) {
-    status_oled_set_note("故障锁定");
-    Serial.println(F("BTN: action ignored, fault locked"));
-    return;
-  }
-  g_zone_manager.sampleAll();
-  if (!anyCalibrated()) {
-    status_oled_set_note("请先标定");
-    Serial.println(F("BTN: no calibration"));
-    return;
-  }
-  uint8_t queued = 0;
-  for (uint8_t i = 0; i < g_sys_config.zone_count; ++i) {
-    if (!zoneIsDry(i)) {
-      continue;
-    }
-    if (g_controller.requestManual(i, g_zone_configs[i].volume_ml)) {
-      ++queued;
-    }
-  }
+  const IrrigationController::DetectOutcome out = g_controller.detectAndWater();
   char note[24];
-  if (queued == 0) {
-    status_oled_set_note("无需浇水");
-    Serial.println(F("BTN: sample done, no dry zone"));
-  } else {
-    snprintf(note, sizeof(note), "排队 %u 盆", queued);
-    status_oled_set_note(note);
-    Serial.printf("BTN: queued %u zone(s)\n", queued);
+  switch (out.code) {
+    case IrrigationController::DetectCode::Locked:
+      status_oled_set_note("故障锁定");
+      Serial.println(F("BTN: action ignored, fault locked"));
+      break;
+    case IrrigationController::DetectCode::Uncalibrated:
+      status_oled_set_note("请先标定");
+      Serial.println(F("BTN: no calibration"));
+      break;
+    case IrrigationController::DetectCode::Done:
+      if (out.queued == 0) {
+        status_oled_set_note("无需浇水");
+        Serial.println(F("BTN: sample done, no dry zone"));
+      } else {
+        snprintf(note, sizeof(note), "排队 %u 盆", out.queued);
+        status_oled_set_note(note);
+        Serial.printf("BTN: queued %u zone(s)\n", out.queued);
+      }
+      break;
   }
 }
 

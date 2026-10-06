@@ -380,6 +380,10 @@ private fun StatusCard(device: DeviceUi, onCommand: (String) -> Unit) {
                 SummaryStat("队列", device.queue.toString(), Modifier.weight(1f))
             }
             Button(
+                onClick = { onCommand("detect") },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("检测并浇水") }
+            Button(
                 onClick = { onCommand("estop") },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Warn, contentColor = Color.White),
@@ -626,9 +630,15 @@ private fun linkColor(link: String): Color = when {
 private fun friendlyReply(raw: String): String? {
     val text = raw.trim()
     if (text.isEmpty() || text.equals("OK", ignoreCase = true)) return null
+    val queued = Regex("^OK (\\d+)$").matchEntire(text)
+    if (queued != null) return "已排队 ${queued.groupValues[1]} 盆"
     return when {
+        text == "OK none" -> "没有偏干的盆"
         text.contains("busy") -> "正在浇水，请稍后再试"
         text.contains("selfcheck") -> "自检未通过，暂时不能操作"
+        text.contains("lock") -> "故障锁定，请先恢复运行"
+        text.contains("cal") -> "请先标定"
+        text.contains("time") -> "对时失败"
         text.contains("valve") -> "阀门操作失败"
         text.contains("zone") -> "数值不对，请检查盆号和上下限"
         text.contains("cmd") -> "无法识别这次操作"

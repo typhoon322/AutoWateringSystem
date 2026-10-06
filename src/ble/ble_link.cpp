@@ -16,6 +16,10 @@
 #include "safety/safety_monitor.h"
 #include "safety/selfcheck.h"
 #include "storage/settings_store.h"
+#include "ui/status_oled.h"
+
+#include <sys/time.h>
+#include <time.h>
 
 extern IrrigationController g_controller;
 extern ZoneManager g_zone_manager;
@@ -73,7 +77,8 @@ void handleCommand(char *line) {
   while (*line == ' ') {
     ++line;
   }
-  if (!g_selfcheck.done && strcmp(line, "estop") != 0 && strcmp(line, "stop") != 0) {
+  if (!g_selfcheck.done && strcmp(line, "estop") != 0 && strcmp(line, "stop") != 0 &&
+      strncmp(line, "time ", 5) != 0) {
     reply("ERR selfcheck");
     return;
   }
@@ -92,6 +97,59 @@ void handleCommand(char *line) {
   }
   if (strcmp(line, "sample") == 0) {
     g_zone_manager.sampleAll();
+    reply("OK");
+    return;
+  }
+  if (strcmp(line, "detect") == 0) {
+    const IrrigationController::DetectOutcome out = g_controller.detectAndWater();
+    char msg[24];
+    switch (out.code) {
+      case IrrigationController::DetectCode::Locked:
+#if BOARD_HAS_STATUS_OLED
+        status_oled_set_note("故障锁定");
+#endif
+        reply("ERR lock");
+        return;
+      case IrrigationController::DetectCode::Uncalibrated:
+#if BOARD_HAS_STATUS_OLED
+        status_oled_set_note("请先标定");
+#endif
+        reply("ERR cal");
+        return;
+      case IrrigationController::DetectCode::Done:
+        if (out.queued == 0) {
+#if BOARD_HAS_STATUS_OLED
+          status_oled_set_note("无需浇水");
+#endif
+          reply("OK none");
+        } else {
+          snprintf(msg, sizeof(msg), "排队 %u 盆", out.queued);
+#if BOARD_HAS_STATUS_OLED
+          status_oled_set_note(msg);
+#endif
+          snprintf(msg, sizeof(msg), "OK %u", out.queued);
+          reply(msg);
+        }
+        return;
+    }
+  }
+  long epoch = 0;
+  if (sscanf(line, "time %ld", &epoch) == 1) {
+    if (epoch < 1700000000L) {
+      reply("ERR time");
+      return;
+    }
+    struct timeval tv;
+    tv.tv_sec = static_cast<time_t>(epoch);
+    tv.tv_usec = 0;
+    if (settimeofday(&tv, nullptr) != 0) {
+      reply("ERR time");
+      return;
+    }
+    struct tm ti;
+    localtime_r(&tv.tv_sec, &ti);
+    Serial.printf("TIME: %04d-%02d-%02d %02d:%02d\n", ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday,
+                  ti.tm_hour, ti.tm_min);
     reply("OK");
     return;
   }

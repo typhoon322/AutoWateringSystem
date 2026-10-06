@@ -198,10 +198,13 @@ class BleClient(
 
         @SuppressLint("MissingPermission")
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            if (descriptor.characteristic.uuid.toString() == Protocol.STATUS) {
+            val uuid = descriptor.characteristic.uuid.toString()
+            if (uuid == Protocol.STATUS) {
                 val reply = g.getService(UUID.fromString(Protocol.SERVICE))
                     ?.getCharacteristic(UUID.fromString(Protocol.REPLY))
                 enableNotify(g, reply)
+            } else if (uuid == Protocol.REPLY) {
+                send("time ${System.currentTimeMillis() / 1000}")
             }
         }
     }
