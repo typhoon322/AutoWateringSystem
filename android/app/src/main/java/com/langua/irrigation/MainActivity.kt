@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.animation.core.LinearEasing
@@ -718,9 +719,7 @@ private fun SettingsZoneCard(
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFF143028)),
                 ) {
-                    if (photo != null) {
-                        Image(photo.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    }
+                    PotPicture(photo, "${zone.index + 1}#", Modifier.fillMaxSize())
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { onPickPhoto(zone.index) }, modifier = Modifier.fillMaxWidth()) { Text("实拍图") }
@@ -1117,6 +1116,20 @@ private fun PotOverview(zones: List<ZoneUi>, watering: Int, mediaTick: Int) {
 }
 
 @Composable
+private fun PotPicture(photo: android.graphics.Bitmap?, description: String, modifier: Modifier) {
+    if (photo != null) {
+        Image(photo.asImageBitmap(), description, modifier, contentScale = ContentScale.Crop)
+    } else {
+        Image(
+            painterResource(R.drawable.ic_launcher_foreground),
+            description,
+            modifier,
+            contentScale = ContentScale.Crop,
+        )
+    }
+}
+
+@Composable
 private fun PotTile(zone: ZoneUi, watering: Boolean, mediaTick: Int, modifier: Modifier) {
     val context = LocalContext.current
     val alias = localName(zone.index, mediaTick)
@@ -1128,14 +1141,7 @@ private fun PotTile(zone: ZoneUi, watering: Boolean, mediaTick: Int, modifier: M
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0xFF143028)),
     ) {
-        if (photo != null) {
-            Image(
-                photo.asImageBitmap(),
-                contentDescription = alias.ifBlank { "${zone.index + 1}#" },
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        }
+        PotPicture(photo, alias.ifBlank { "${zone.index + 1}#" }, Modifier.fillMaxSize())
         if (watering) WateringOverlay()
         Box(
             Modifier
