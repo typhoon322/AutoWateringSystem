@@ -98,8 +98,8 @@ void drawClockLine() {
     time_t now = time(nullptr);
     struct tm ti;
     localtime_r(&now, &ti);
-    snprintf(line, sizeof(line), "%02d-%02d %02d:%02d", ti.tm_mon + 1, ti.tm_mday, ti.tm_hour,
-             ti.tm_min);
+    snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d", ti.tm_year + 1900, ti.tm_mon + 1,
+             ti.tm_mday, ti.tm_hour, ti.tm_min);
   }
   g_oled.drawUTF8(0, 14, line);
 }
