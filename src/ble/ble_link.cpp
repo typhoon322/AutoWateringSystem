@@ -17,7 +17,11 @@
 #include "safety/selfcheck.h"
 #include "storage/settings_store.h"
 #include "ui/status_oled.h"
+#include "web/web_server.h"
+#include "sensor/flow_meter.h"
+#include "storage/irrigation_history.h"
 
+#include <WiFi.h>
 #include <sys/time.h>
 #include <time.h>
 
@@ -31,6 +35,10 @@ extern SystemConfig g_sys_config;
 extern ZoneConfig g_zone_configs[MAX_ZONES];
 extern ZoneStatus g_zone_status[MAX_ZONES];
 extern SystemStatus g_sys_status;
+extern WebServerUi g_web;
+extern FlowMeter g_flow;
+extern IrrigationHistory g_history;
+extern void purgeSet(bool on);
 
 namespace {
 
@@ -54,7 +62,7 @@ bool g_inited = false;
 bool g_connected = false;
 uint32_t g_last_notify_ms = 0;
 
-char g_cmd[48];
+char g_cmd[96];
 volatile bool g_cmd_pending = false;
 portMUX_TYPE g_mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -73,12 +81,71 @@ void reply(const char *text) {
 
 bool zoneOk(int z) { return z >= 0 && z < g_sys_config.zone_count; }
 
+bool hmOk(int h, int m) { return h >= 0 && h <= 23 && m >= 0 && m <= 59; }
+
+void copyName(char *dst, size_t cap, const char *src) {
+  size_t n = 0;
+  while (src[n] != '\0' && n + 1 < cap) {
+    const uint8_t c = static_cast<uint8_t>(src[n]);
+    size_t need = 1;
+    if ((c & 0xE0) == 0xC0) {
+      need = 2;
+    } else if ((c & 0xF0) == 0xE0) {
+      need = 3;
+    } else if ((c & 0xF8) == 0xF0) {
+      need = 4;
+    }
+    if (n + need >= cap) {
+      break;
+    }
+    bool ok = true;
+    for (size_t i = 0; i < need; ++i) {
+      if (src[n + i] == '\0') {
+        ok = false;
+      }
+    }
+    if (!ok) {
+      break;
+    }
+    n += need;
+  }
+  memcpy(dst, src, n);
+  dst[n] = '\0';
+}
+
+void replyWifi() {
+  char line[80];
+  const bool up = WiFi.status() == WL_CONNECTED;
+  snprintf(line, sizeof(line), "W %d %s", g_sys_config.wifi_enabled ? 1 : 0,
+           up ? WiFi.localIP().toString().c_str() : "-");
+  reply(line);
+  snprintf(line, sizeof(line), "S %s", g_sys_config.wifi_ssid);
+  reply(line);
+}
+
+void replyHistory() {
+  const uint8_t n = g_history.count();
+  char line[48];
+  snprintf(line, sizeof(line), "H %u", n);
+  reply(line);
+  for (uint8_t i = 0; i < n; ++i) {
+    const IrrigationRecord *r = g_history.get(i);
+    if (r == nullptr) {
+      continue;
+    }
+    snprintf(line, sizeof(line), "R %lu %u %u %u", static_cast<unsigned long>(r->ts), r->zone,
+             r->volume_ml, r->trigger);
+    reply(line);
+    delay(20);
+  }
+}
+
 void handleCommand(char *line) {
   while (*line == ' ') {
     ++line;
   }
   if (!g_selfcheck.done && strcmp(line, "estop") != 0 && strcmp(line, "stop") != 0 &&
-      strncmp(line, "time ", 5) != 0) {
+      strncmp(line, "time ", 5) != 0 && strcmp(line, "hist") != 0 && strcmp(line, "wifi?") != 0) {
     reply("ERR selfcheck");
     return;
   }
@@ -235,6 +302,143 @@ void handleCommand(char *line) {
     reply("OK");
     return;
   }
+  if (strcmp(line, "hist") == 0) {
+    replyHistory();
+    return;
+  }
+  if (strcmp(line, "wifi?") == 0) {
+    replyWifi();
+    return;
+  }
+  if (strncmp(line, "auto all ", 9) == 0) {
+    const bool on = atoi(line + 9) != 0;
+    for (uint8_t i = 0; i < g_sys_config.zone_count; ++i) {
+      g_zone_configs[i].auto_enabled = on;
+    }
+    saveSettings();
+    reply("OK");
+    return;
+  }
+  if (sscanf(line, "sch %d off", &a) == 1) {
+    if (!zoneOk(a)) {
+      reply("ERR zone");
+      return;
+    }
+    g_zone_configs[a].schedule_enabled = false;
+    saveSettings();
+    reply("OK");
+    return;
+  }
+  if (sscanf(line, "sch %d %d %d", &a, &b, &c) == 3) {
+    if (!zoneOk(a) || !hmOk(b, c)) {
+      reply("ERR zone");
+      return;
+    }
+    g_zone_configs[a].schedule_enabled = true;
+    g_zone_configs[a].schedule_hour = static_cast<uint8_t>(b);
+    g_zone_configs[a].schedule_minute = static_cast<uint8_t>(c);
+    g_zone_configs[a].schedule_fired_today = false;
+    saveSettings();
+    reply("OK");
+    return;
+  }
+  int en = 0;
+  int sh = 0;
+  int sm = 0;
+  int eh = 0;
+  int em = 0;
+  if (sscanf(line, "win %d %d %d %d %d", &en, &sh, &sm, &eh, &em) == 5) {
+    if (!hmOk(sh, sm) || !hmOk(eh, em)) {
+      reply("ERR zone");
+      return;
+    }
+    g_sys_config.auto_window_enabled = en != 0;
+    g_sys_config.auto_win_sh = static_cast<uint8_t>(sh);
+    g_sys_config.auto_win_sm = static_cast<uint8_t>(sm);
+    g_sys_config.auto_win_eh = static_cast<uint8_t>(eh);
+    g_sys_config.auto_win_em = static_cast<uint8_t>(em);
+    saveSettings();
+    reply("OK");
+    return;
+  }
+  unsigned long lim = 0;
+  if (sscanf(line, "limit %lu", &lim) == 1) {
+    if (lim < 100 || lim > 200000UL) {
+      reply("ERR zone");
+      return;
+    }
+    g_sys_config.daily_limit_ml = static_cast<uint32_t>(lim);
+    g_safety.setDailyLimit(g_sys_config.daily_limit_ml);
+    saveSettings();
+    reply("OK");
+    return;
+  }
+  if (sscanf(line, "zones %d", &a) == 1) {
+    if (a < 1 || a > MAX_ZONES) {
+      reply("ERR zone");
+      return;
+    }
+    g_web.applyZoneCount(static_cast<uint8_t>(a));
+    saveSettings();
+    reply("OK");
+    return;
+  }
+  if (sscanf(line, "ppl %d", &a) == 1) {
+    if (a < 1 || a > 20000) {
+      reply("ERR zone");
+      return;
+    }
+    g_sys_config.pulses_per_liter = static_cast<uint16_t>(a);
+    saveSettings();
+    reply("OK");
+    return;
+  }
+  if (strcmp(line, "flow 0") == 0) {
+    g_flow.resetSession();
+    reply("OK");
+    return;
+  }
+  if (sscanf(line, "purge %d", &a) == 1) {
+    purgeSet(a != 0);
+    reply("OK");
+    return;
+  }
+  if (strncmp(line, "name ", 5) == 0) {
+    int z = 0;
+    if (sscanf(line + 5, "%d", &z) != 1 || !zoneOk(z)) {
+      reply("ERR zone");
+      return;
+    }
+    const char *sp = strchr(line + 5, ' ');
+    if (sp == nullptr || sp[1] == '\0') {
+      reply("ERR zone");
+      return;
+    }
+    copyName(g_zone_configs[z].name, sizeof(g_zone_configs[z].name), sp + 1);
+    saveSettings();
+    reply("OK");
+    return;
+  }
+  if (strncmp(line, "ssid ", 5) == 0) {
+    copyName(g_sys_config.wifi_ssid, sizeof(g_sys_config.wifi_ssid), line + 5);
+    saveSettings();
+    reply("OK");
+    return;
+  }
+  if (strncmp(line, "pass ", 5) == 0) {
+    strncpy(g_sys_config.wifi_pass, line + 5, sizeof(g_sys_config.wifi_pass) - 1);
+    g_sys_config.wifi_pass[sizeof(g_sys_config.wifi_pass) - 1] = '\0';
+    saveSettings();
+    reply("OK");
+    return;
+  }
+  if (sscanf(line, "wifi %d", &a) == 1) {
+    g_sys_config.wifi_enabled = a != 0;
+    saveSettings();
+    g_web.restartWiFi();
+    reply("OK");
+    return;
+  }
   reply("ERR cmd");
 }
 
@@ -273,31 +477,53 @@ CmdCb g_cmd_cb;
 size_t buildStatus(uint8_t *out, size_t cap) {
   const uint8_t n =
       g_sys_config.zone_count > MAX_ZONES ? MAX_ZONES : g_sys_config.zone_count;
-  const size_t need = 12 + static_cast<size_t>(n) * 16;
+  const size_t need = 28 + static_cast<size_t>(n) * 24;
   if (cap < need) {
     return 0;
   }
-  out[0] = 1;
+  memset(out, 0, need);
+  out[0] = 2;
   out[1] = static_cast<uint8_t>(g_sys_status.state);
   out[2] = static_cast<uint8_t>(g_sys_status.safety);
   uint8_t flags = 0;
   if (g_sys_status.pump_on) flags |= 0x01;
   if (g_sys_status.valve_on) flags |= 0x02;
   if (g_safety.isLocked()) flags |= 0x04;
+  if (g_sys_status.purge_on) flags |= 0x08;
+  if (WiFi.status() == WL_CONNECTED) flags |= 0x10;
   out[3] = flags;
   out[4] = g_sys_status.active_valve < 0 ? 255 : static_cast<uint8_t>(g_sys_status.active_valve);
   out[5] = g_sys_status.queue_len;
   out[6] = n;
-  out[7] = 0;
+  out[7] = g_sys_config.auto_window_enabled ? 1 : 0;
   const uint16_t daily =
       g_sys_status.daily_ml > 65535 ? 65535 : static_cast<uint16_t>(g_sys_status.daily_ml);
   out[8] = static_cast<uint8_t>(daily & 0xFF);
   out[9] = static_cast<uint8_t>(daily >> 8);
   out[10] = static_cast<uint8_t>(g_sys_status.session_ml & 0xFF);
   out[11] = static_cast<uint8_t>(g_sys_status.session_ml >> 8);
+  const uint32_t limit = g_sys_config.daily_limit_ml;
+  out[12] = static_cast<uint8_t>(limit & 0xFF);
+  out[13] = static_cast<uint8_t>((limit >> 8) & 0xFF);
+  out[14] = static_cast<uint8_t>((limit >> 16) & 0xFF);
+  out[15] = static_cast<uint8_t>((limit >> 24) & 0xFF);
+  out[16] = g_sys_config.auto_win_sh;
+  out[17] = g_sys_config.auto_win_sm;
+  out[18] = g_sys_config.auto_win_eh;
+  out[19] = g_sys_config.auto_win_em;
+  out[20] = static_cast<uint8_t>(g_sys_config.pulses_per_liter & 0xFF);
+  out[21] = static_cast<uint8_t>(g_sys_config.pulses_per_liter >> 8);
+  const uint16_t flowMl = g_flow.volumeMl(g_sys_config.pulses_per_liter);
+  out[22] = static_cast<uint8_t>(flowMl & 0xFF);
+  out[23] = static_cast<uint8_t>(flowMl >> 8);
+  const uint32_t pulses = g_flow.pulses();
+  out[24] = static_cast<uint8_t>(pulses & 0xFF);
+  out[25] = static_cast<uint8_t>((pulses >> 8) & 0xFF);
+  out[26] = static_cast<uint8_t>((pulses >> 16) & 0xFF);
+  out[27] = static_cast<uint8_t>((pulses >> 24) & 0xFF);
 
   for (uint8_t i = 0; i < n; ++i) {
-    uint8_t *z = out + 12 + static_cast<size_t>(i) * 16;
+    uint8_t *z = out + 28 + static_cast<size_t>(i) * 24;
     const ZoneStatus &st = g_zone_status[i];
     const ZoneConfig &cfg = g_zone_configs[i];
     z[0] = st.moisture_pct;
@@ -312,9 +538,10 @@ size_t buildStatus(uint8_t *out, size_t cap) {
     z[5] = static_cast<uint8_t>(cfg.volume_ml >> 8);
     z[6] = static_cast<uint8_t>(st.moisture_adc & 0xFF);
     z[7] = static_cast<uint8_t>(st.moisture_adc >> 8);
-    memset(z + 8, 0, 8);
-    strncpy(reinterpret_cast<char *>(z + 8), cfg.name, 7);
-    z[15] = 0;
+    z[8] = cfg.schedule_hour;
+    z[9] = cfg.schedule_minute;
+    strncpy(reinterpret_cast<char *>(z + 10), cfg.name, 13);
+    z[23] = 0;
   }
   return need;
 }
@@ -323,7 +550,7 @@ void notifyStatus() {
   if (!g_connected || g_status == nullptr) {
     return;
   }
-  uint8_t payload[12 + MAX_ZONES * 16];
+  uint8_t payload[28 + MAX_ZONES * 24];
   const size_t n = buildStatus(payload, sizeof(payload));
   if (n == 0) {
     return;

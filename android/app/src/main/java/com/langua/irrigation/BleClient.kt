@@ -100,7 +100,7 @@ class BleClient(
         val g = gatt ?: return
         writing = true
         ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-        ch.value = line.toByteArray(Charsets.US_ASCII)
+        ch.value = line.toByteArray(Charsets.UTF_8)
         if (!g.writeCharacteristic(ch)) {
             writing = false
             main.post { onReply("发送失败") }

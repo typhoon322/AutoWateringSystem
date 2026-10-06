@@ -8,6 +8,9 @@ data class ZoneUi(
     val high: Int,
     val auto: Boolean,
     val valid: Boolean,
+    val schedule: Boolean,
+    val hour: Int,
+    val minute: Int,
     val volume: Int,
     val adc: Int,
 )
@@ -20,8 +23,27 @@ data class DeviceUi(
     val activeValve: Int,
     val queue: Int,
     val locked: Boolean,
+    val purge: Boolean,
+    val wifiUp: Boolean,
     val dailyMl: Int,
+    val sessionMl: Int,
+    val dailyLimit: Long,
+    val winOn: Boolean,
+    val winSh: Int,
+    val winSm: Int,
+    val winEh: Int,
+    val winEm: Int,
+    val ppl: Int,
+    val flowMl: Int,
+    val pulses: Long,
     val zones: List<ZoneUi>,
+)
+
+data class HistUi(
+    val ts: Long,
+    val zone: Int,
+    val ml: Int,
+    val trigger: Int,
 )
 
 object Protocol {
@@ -50,19 +72,27 @@ object Protocol {
         else -> "未知"
     }
 
+    fun triggerText(trigger: Int): String = when (trigger) {
+        1 -> "自动"
+        2 -> "定时"
+        3 -> "手动"
+        4 -> "测试"
+        else -> "浇水"
+    }
+
     fun parse(payload: ByteArray): DeviceUi? {
-        if (payload.size < 12 || payload[0].toInt() != 1) return null
+        if (payload.size < 28 || payload[0].toInt() != 2) return null
         val zoneCount = payload[6].toInt() and 0xFF
-        if (payload.size < 12 + zoneCount * 16) return null
+        if (payload.size < 28 + zoneCount * 24) return null
         val flags = payload[3].toInt() and 0xFF
         val active = payload[4].toInt() and 0xFF
         val zones = ArrayList<ZoneUi>(zoneCount)
         for (i in 0 until zoneCount) {
-            val o = 12 + i * 16
+            val o = 28 + i * 24
             val zf = payload[o + 3].toInt() and 0xFF
-            val nameBytes = payload.copyOfRange(o + 8, o + 16)
+            val nameBytes = payload.copyOfRange(o + 10, o + 24)
             val end = nameBytes.indexOf(0).let { if (it < 0) nameBytes.size else it }
-            val name = nameBytes.copyOf(end).toString(Charsets.UTF_8).ifBlank { "盆$i" }
+            val name = nameBytes.copyOf(end).toString(Charsets.UTF_8).ifBlank { "${i + 1}# 盆" }
             zones.add(
                 ZoneUi(
                     index = i,
@@ -72,6 +102,9 @@ object Protocol {
                     high = payload[o + 2].toInt() and 0xFF,
                     auto = zf and 0x01 != 0,
                     valid = zf and 0x02 != 0,
+                    schedule = zf and 0x04 != 0,
+                    hour = payload[o + 8].toInt() and 0xFF,
+                    minute = payload[o + 9].toInt() and 0xFF,
                     volume = u16(payload, o + 4),
                     adc = u16(payload, o + 6),
                 )
@@ -85,11 +118,29 @@ object Protocol {
             activeValve = if (active == 255) -1 else active,
             queue = payload[5].toInt() and 0xFF,
             locked = flags and 0x04 != 0,
+            purge = flags and 0x08 != 0,
+            wifiUp = flags and 0x10 != 0,
             dailyMl = u16(payload, 8),
+            sessionMl = u16(payload, 10),
+            dailyLimit = u32(payload, 12),
+            winOn = payload[7].toInt() != 0,
+            winSh = payload[16].toInt() and 0xFF,
+            winSm = payload[17].toInt() and 0xFF,
+            winEh = payload[18].toInt() and 0xFF,
+            winEm = payload[19].toInt() and 0xFF,
+            ppl = u16(payload, 20),
+            flowMl = u16(payload, 22),
+            pulses = u32(payload, 24),
             zones = zones,
         )
     }
 
     private fun u16(b: ByteArray, i: Int): Int =
         (b[i].toInt() and 0xFF) or ((b[i + 1].toInt() and 0xFF) shl 8)
+
+    private fun u32(b: ByteArray, i: Int): Long =
+        (b[i].toLong() and 0xFF) or
+            ((b[i + 1].toLong() and 0xFF) shl 8) or
+            ((b[i + 2].toLong() and 0xFF) shl 16) or
+            ((b[i + 3].toLong() and 0xFF) shl 24)
 }

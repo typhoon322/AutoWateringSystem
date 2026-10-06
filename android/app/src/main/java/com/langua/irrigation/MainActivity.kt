@@ -53,11 +53,13 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
@@ -68,6 +70,12 @@ class MainActivity : ComponentActivity() {
     private var notice by mutableStateOf<Notice?>(null)
     private var noticeSeq = 0
     private var device by mutableStateOf<DeviceUi?>(null)
+    private var history by mutableStateOf<List<HistUi>>(emptyList())
+    private var histLeft = 0
+    private val histBuf = mutableListOf<HistUi>()
+    private var wifiOn by mutableStateOf(true)
+    private var wifiSsid by mutableStateOf("")
+    private var wifiIp by mutableStateOf("")
     private lateinit var ble: BleClient
 
     private val permissionLaunch = registerForActivityResult(
@@ -90,9 +98,39 @@ class MainActivity : ComponentActivity() {
             onLink = { linkText = it },
             onDevice = { device = it },
             onReply = { raw ->
-                friendlyReply(raw)?.let {
-                    noticeSeq += 1
-                    notice = Notice(noticeSeq, it)
+                val text = raw.trim()
+                when {
+                    text.startsWith("H ") -> {
+                        histLeft = text.removePrefix("H ").toIntOrNull() ?: 0
+                        histBuf.clear()
+                        if (histLeft == 0) history = emptyList()
+                    }
+                    text.startsWith("R ") -> {
+                        val p = text.removePrefix("R ").split(" ")
+                        if (p.size >= 4) {
+                            histBuf.add(
+                                HistUi(
+                                    p[0].toLongOrNull() ?: 0L,
+                                    p[1].toIntOrNull() ?: 0,
+                                    p[2].toIntOrNull() ?: 0,
+                                    p[3].toIntOrNull() ?: 0,
+                                )
+                            )
+                            histLeft -= 1
+                            if (histLeft <= 0) history = histBuf.toList()
+                        }
+                    }
+                    text.startsWith("W ") -> {
+                        val p = text.removePrefix("W ").split(" ", limit = 2)
+                        wifiOn = p.getOrNull(0) == "1"
+                        wifiIp = p.getOrNull(1)?.takeUnless { it == "-" } ?: ""
+                    }
+                    text.startsWith("S ") -> wifiSsid = text.removePrefix("S ")
+                    text == "S" -> wifiSsid = ""
+                    else -> friendlyReply(text)?.let {
+                        noticeSeq += 1
+                        notice = Notice(noticeSeq, it)
+                    }
                 }
             },
         )
@@ -102,6 +140,10 @@ class MainActivity : ComponentActivity() {
                     link = linkText,
                     notice = notice,
                     device = device,
+                    history = history,
+                    wifiOn = wifiOn,
+                    wifiSsid = wifiSsid,
+                    wifiIp = wifiIp,
                     onConnect = { ensurePermissionAndScan() },
                     onDisconnect = { ble.disconnect() },
                     onCommand = { ble.send(it) },
@@ -182,6 +224,10 @@ private fun AppShell(
     link: String,
     notice: Notice?,
     device: DeviceUi?,
+    history: List<HistUi>,
+    wifiOn: Boolean,
+    wifiSsid: String,
+    wifiIp: String,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onCommand: (String) -> Unit,
@@ -194,6 +240,12 @@ private fun AppShell(
     LaunchedEffect(notice?.id) {
         val text = notice?.text ?: return@LaunchedEffect
         snackbar.showSnackbar(text)
+    }
+    LaunchedEffect(tab, device?.dailyMl, device != null) {
+        if (tab == AppTab.Home && device != null) onCommand("hist")
+    }
+    LaunchedEffect(tab) {
+        if (tab == AppTab.Settings && device != null) onCommand("wifi?")
     }
     Scaffold(
         containerColor = Bg,
@@ -227,9 +279,10 @@ private fun AppShell(
         },
     ) { padding ->
         when (tab) {
-            AppTab.Home -> HomePage(link, device, volumes, onCommand, Modifier.padding(padding))
+            AppTab.Home -> HomePage(link, device, history, volumes, onCommand, Modifier.padding(padding))
             AppTab.Settings -> SettingsPage(
-                link, device, lows, highs, onConnect, onDisconnect, onCommand, Modifier.padding(padding),
+                link, device, lows, highs, wifiOn, wifiSsid, wifiIp,
+                onConnect, onDisconnect, onCommand, Modifier.padding(padding),
             )
             AppTab.Debug -> DebugPage(link, device, onCommand, Modifier.padding(padding))
         }
@@ -268,6 +321,7 @@ private fun PageColumn(
 private fun HomePage(
     link: String,
     device: DeviceUi?,
+    history: List<HistUi>,
     volumes: MutableMap<Int, Int>,
     onCommand: (String) -> Unit,
     modifier: Modifier,
@@ -287,6 +341,7 @@ private fun HomePage(
                     )
                 }
             }
+            HistoryCard(history, device.zones)
         }
     }
 }
@@ -297,6 +352,9 @@ private fun SettingsPage(
     device: DeviceUi?,
     lows: MutableMap<Int, String>,
     highs: MutableMap<Int, String>,
+    wifiOn: Boolean,
+    wifiSsid: String,
+    wifiIp: String,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onCommand: (String) -> Unit,
@@ -323,7 +381,9 @@ private fun SettingsPage(
         if (device == null) {
             HintCard("还没有盆的设置", "连上之后可以改每盆的湿度上下限。")
         } else {
-            Text("低于下限自动浇，高于上限视为偏湿。", color = Muted)
+            Text("低于下限自动浇，高于上限视为偏湿。定时和自动时段在每张卡片里。", color = Muted)
+            RulesCard(device, onCommand)
+            WifiCard(wifiOn, wifiSsid, wifiIp, device.wifiUp, onCommand)
             device.zones.forEach { zone ->
                 key(zone.index) {
                     SettingsZoneCard(zone, lows, highs, onCommand)
@@ -345,6 +405,7 @@ private fun DebugPage(
             HintCard("还不能调试", "连上之后可以采样、标定、开关泵阀。")
         } else {
             ServiceCard(device, onCommand)
+            FlowCard(device, onCommand)
             device.zones.forEach { zone ->
                 DebugZoneCard(
                     zone,
@@ -371,8 +432,14 @@ private fun StatusCard(device: DeviceUi, onCommand: (String) -> Unit) {
                 Column {
                     Text("今日浇水", color = Color.White, style = MaterialTheme.typography.titleMedium)
                     Text("${Protocol.stateText(device.state)} · ${Protocol.safetyText(device.safety)}", color = tone)
+                    if (device.sessionMl > 0) {
+                        Text("本次 ${device.sessionMl} ml", color = Muted)
+                    }
                 }
-                Text("${device.dailyMl} ml", color = tone, style = MaterialTheme.typography.headlineSmall)
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("${device.dailyMl} ml", color = tone, style = MaterialTheme.typography.headlineSmall)
+                    Text("限额 ${device.dailyLimit}", color = Muted)
+                }
             }
             Row(Modifier.fillMaxWidth()) {
                 SummaryStat("水泵", if (device.pump) "开" else "关", Modifier.weight(1f))
@@ -446,7 +513,10 @@ private fun HomeZoneCard(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text(zone.name, color = Color.White, style = MaterialTheme.typography.titleMedium)
-                    Text(zoneLabel(zone), color = tone)
+                    Text(
+                        zoneLabel(zone) + if (zone.schedule) " · 定时 %02d:%02d".format(zone.hour, zone.minute) else "",
+                        color = tone,
+                    )
                 }
                 Text("${if (zone.valid) zone.pct.toString() else "--"}%", color = tone, style = MaterialTheme.typography.headlineSmall)
             }
@@ -508,9 +578,25 @@ private fun SettingsZoneCard(
 ) {
     val low = lows[zone.index] ?: zone.low.toString()
     val high = highs[zone.index] ?: zone.high.toString()
+    var name by remember(zone.name) { mutableStateOf(zone.name) }
+    var schOn by remember(zone.schedule) { mutableStateOf(zone.schedule) }
+    var hour by remember(zone.hour) { mutableStateOf(zone.hour.coerceIn(0, 23)) }
+    var minute by remember(zone.minute) { mutableStateOf(zone.minute.coerceIn(0, 59)) }
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(zone.name, color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Text("${zone.index + 1}#", color = Muted)
+            OutlinedTextField(
+                value = name,
+                onValueChange = { if (it.encodeToByteArray().size <= 13) name = it },
+                label = { Text("盆名") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = fieldColors(),
+            )
+            DarkButton("保存名称") {
+                val trimmed = name.trim().ifBlank { "${zone.index + 1}# 盆" }
+                onCommand("name ${zone.index} $trimmed")
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = low,
@@ -529,18 +615,30 @@ private fun SettingsZoneCard(
                     colors = fieldColors(),
                 )
             }
-            Button(
-                onClick = {
-                    val lo = low.toIntOrNull() ?: zone.low
-                    val hi = high.toIntOrNull() ?: zone.high
-                    onCommand("th ${zone.index} $lo $hi")
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF21262D),
-                    contentColor = Color.White,
-                ),
-            ) { Text("保存阈值") }
+            DarkButton("保存阈值") {
+                val lo = low.toIntOrNull() ?: zone.low
+                val hi = high.toIntOrNull() ?: zone.high
+                onCommand("th ${zone.index} $lo $hi")
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("定时浇水", color = Color.White)
+                Switch(
+                    checked = schOn,
+                    onCheckedChange = { schOn = it },
+                    colors = switchColors(),
+                )
+            }
+            if (schOn) {
+                TimeRow("时刻", hour, minute, { hour = it }, { minute = it })
+            }
+            DarkButton("保存定时") {
+                if (schOn) onCommand("sch ${zone.index} $hour $minute")
+                else onCommand("sch ${zone.index} off")
+            }
         }
     }
 }
@@ -578,6 +676,255 @@ private fun DebugZoneCard(
             }
         }
     }
+}
+
+private val LimitStops = intArrayOf(500, 1000, 1500, 2000, 3000, 4000, 5000, 8000, 10000)
+
+private fun nearestLimit(ml: Long): Int = LimitStops.minBy { abs(it - ml.toInt()) }
+
+@Composable
+private fun switchColors() = SwitchDefaults.colors(
+    checkedThumbColor = Color.White,
+    checkedTrackColor = Accent,
+    uncheckedThumbColor = Muted,
+    uncheckedTrackColor = Color(0xFF2C3544),
+    uncheckedBorderColor = Color(0xFF2C3544),
+)
+
+@Composable
+private fun DarkButton(text: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D), contentColor = Color.White),
+    ) { Text(text) }
+}
+
+@Composable
+private fun TimeRow(
+    label: String,
+    hour: Int,
+    minute: Int,
+    onHour: (Int) -> Unit,
+    onMinute: (Int) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, color = Color.White)
+        Stepper(hour, 0, 23, 1, onHour)
+        Text(":", color = Muted)
+        Stepper(minute, 0, 59, 5, onMinute)
+    }
+}
+
+@Composable
+private fun Stepper(value: Int, min: Int, max: Int, step: Int, onChange: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Button(
+            onClick = { onChange((value - step).coerceIn(min, max)) },
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D), contentColor = Color.White),
+        ) { Text("−") }
+        Text(
+            "%02d".format(value),
+            color = Color.White,
+            modifier = Modifier.width(36.dp),
+            textAlign = TextAlign.Center,
+        )
+        Button(
+            onClick = { onChange((value + step).coerceIn(min, max)) },
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D), contentColor = Color.White),
+        ) { Text("+") }
+    }
+}
+
+@Composable
+private fun RulesCard(device: DeviceUi, onCommand: (String) -> Unit) {
+    val allAuto = device.zones.isNotEmpty() && device.zones.all { it.auto }
+    var winOn by remember(device.winOn) { mutableStateOf(device.winOn) }
+    var sh by remember(device.winSh) { mutableStateOf(device.winSh.coerceIn(0, 23)) }
+    var sm by remember(device.winSm) { mutableStateOf(device.winSm.coerceIn(0, 59)) }
+    var eh by remember(device.winEh) { mutableStateOf(device.winEh.coerceIn(0, 23)) }
+    var em by remember(device.winEm) { mutableStateOf(device.winEm.coerceIn(0, 59)) }
+    val limit = nearestLimit(device.dailyLimit)
+    var limitIndex by remember(limit) { mutableStateOf(LimitStops.indexOf(limit).coerceAtLeast(0)) }
+    var zones by remember(device.zones.size) { mutableStateOf(device.zones.size.coerceAtLeast(1)) }
+    Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("浇水规则", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("全部自动", color = Color.White)
+                Switch(
+                    checked = allAuto,
+                    onCheckedChange = { onCommand("auto all ${if (it) 1 else 0}") },
+                    colors = switchColors(),
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("自动时段", color = Color.White)
+                    Text("起止相同表示全天。窗口外不自动浇。", color = Muted)
+                }
+                Switch(checked = winOn, onCheckedChange = { winOn = it }, colors = switchColors())
+            }
+            if (winOn) {
+                TimeRow("开始", sh, sm, { sh = it }, { sm = it })
+                TimeRow("结束", eh, em, { eh = it }, { em = it })
+            }
+            DarkButton("保存时段") { onCommand("win ${if (winOn) 1 else 0} $sh $sm $eh $em") }
+            Text("日限额 ${LimitStops[limitIndex]} ml", color = Color.White)
+            Slider(
+                value = limitIndex.toFloat(),
+                onValueChange = { limitIndex = it.roundToInt().coerceIn(0, LimitStops.lastIndex) },
+                valueRange = 0f..LimitStops.lastIndex.toFloat(),
+                steps = LimitStops.size - 2,
+                colors = SliderDefaults.colors(
+                    thumbColor = Accent,
+                    activeTrackColor = Accent,
+                    inactiveTrackColor = Color(0xFF2C3544),
+                ),
+            )
+            DarkButton("保存限额") { onCommand("limit ${LimitStops[limitIndex]}") }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("启用盆数", color = Color.White)
+                Stepper(zones, 1, 10, 1) { zones = it }
+            }
+            DarkButton("保存盆数") { onCommand("zones $zones") }
+        }
+    }
+}
+
+@Composable
+private fun WifiCard(
+    enabled: Boolean,
+    ssid: String,
+    ip: String,
+    up: Boolean,
+    onCommand: (String) -> Unit,
+) {
+    var on by remember(enabled) { mutableStateOf(enabled) }
+    var name by remember(ssid) { mutableStateOf(ssid) }
+    var pass by remember { mutableStateOf("") }
+    Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("WiFi", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Text(if (up && ip.isNotBlank()) "已连接 $ip" else "未连接路由器", color = Muted)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("启用", color = Color.White)
+                Switch(checked = on, onCheckedChange = { on = it }, colors = switchColors())
+            }
+            OutlinedTextField(
+                value = name,
+                onValueChange = { if (it.encodeToByteArray().size <= 32) name = it },
+                label = { Text("名称") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = fieldColors(),
+            )
+            OutlinedTextField(
+                value = pass,
+                onValueChange = { if (it.length <= 64) pass = it },
+                label = { Text("密码，留空则不改") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = fieldColors(),
+            )
+            DarkButton("保存网络") {
+                if (name.isNotBlank()) onCommand("ssid $name")
+                if (pass.isNotEmpty()) onCommand("pass $pass")
+                onCommand("wifi ${if (on) 1 else 0}")
+            }
+        }
+    }
+}
+
+@Composable
+private fun FlowCard(device: DeviceUi, onCommand: (String) -> Unit) {
+    var ppl by remember(device.ppl) { mutableStateOf(device.ppl.toString()) }
+    Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("流量与排气", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Text("${device.flowMl} ml · ${device.pulses} 脉冲", color = Muted)
+            OutlinedTextField(
+                value = ppl,
+                onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) ppl = it },
+                label = { Text("每升脉冲") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = fieldColors(),
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { onCommand("ppl ${ppl.toIntOrNull() ?: device.ppl}") }, modifier = Modifier.weight(1f)) {
+                    Text("保存")
+                }
+                Button(
+                    onClick = { onCommand("flow 0") },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D), contentColor = Color.White),
+                ) { Text("清零") }
+            }
+            Button(
+                onClick = { onCommand(if (device.purge) "purge 0" else "purge 1") },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (device.purge) Warn else Accent,
+                    contentColor = if (device.purge) Color.White else Color(0xFF0F1419),
+                ),
+            ) { Text(if (device.purge) "停止排气" else "排气") }
+        }
+    }
+}
+
+@Composable
+private fun HistoryCard(history: List<HistUi>, zones: List<ZoneUi>) {
+    Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("最近浇水", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            if (history.isEmpty()) {
+                Text("还没有记录", color = Muted)
+            } else {
+                history.take(8).forEach { row ->
+                    val name = zones.getOrNull(row.zone)?.name ?: "${row.zone + 1}#"
+                    Text(
+                        "${histClock(row.ts)}  $name  ${row.ml} ml  ${Protocol.triggerText(row.trigger)}",
+                        color = Color.White,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun histClock(ts: Long): String {
+    if (ts <= 0L) return "--:--"
+    val cal = java.util.Calendar.getInstance()
+    cal.timeInMillis = ts * 1000L
+    return "%02d-%02d %02d:%02d".format(
+        cal.get(java.util.Calendar.MONTH) + 1,
+        cal.get(java.util.Calendar.DAY_OF_MONTH),
+        cal.get(java.util.Calendar.HOUR_OF_DAY),
+        cal.get(java.util.Calendar.MINUTE),
+    )
 }
 
 private val VolumeStops = intArrayOf(100, 200, 300, 400, 500, 600, 700, 800, 1000)

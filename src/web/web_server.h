@@ -9,11 +9,12 @@ class WebServerUi {
  public:
   void begin(SystemContextEx *ctx);
   void loop();
+  void applyZoneCount(uint8_t n);
+  void restartWiFi();
 
  private:
   void setupRoutes();
   void startWiFi();
-  void restartWiFi();
   void tickWiFi();
   void resolveWifiCredentials(char *ssid, size_t ssid_len, char *pass, size_t pass_len) const;
   void handleRoot();
@@ -37,7 +38,6 @@ class WebServerUi {
   void handleHistory();
   void handlePurge();
   void handleStress();
-  void applyZoneCount(uint8_t n);
 
   SystemContextEx *ctx_ = nullptr;
   uint32_t last_wifi_attempt_ms_ = 0;
