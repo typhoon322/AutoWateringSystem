@@ -8,7 +8,31 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import android.net.Uri
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -78,11 +102,23 @@ class MainActivity : ComponentActivity() {
     private var wifiIp by mutableStateOf("")
     private lateinit var ble: BleClient
 
+    private var mediaTick by mutableIntStateOf(0)
+    private var photoFor = -1
+
     private val permissionLaunch = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { granted ->
         if (granted.values.all { it }) ble.startScan()
         else linkText = "需要蓝牙权限才能连接灌溉器"
+    }
+
+    private val pickPhoto = registerForActivityResult(PickVisualMedia()) { uri: Uri? ->
+        val zone = photoFor
+        if (uri != null && zone >= 0) {
+            ZoneStore.savePhoto(this, zone, uri)
+            mediaTick += 1
+        }
+        photoFor = -1
     }
 
     private val enableBtLaunch = registerForActivityResult(
@@ -144,6 +180,12 @@ class MainActivity : ComponentActivity() {
                     wifiOn = wifiOn,
                     wifiSsid = wifiSsid,
                     wifiIp = wifiIp,
+                    mediaTick = mediaTick,
+                    onPickPhoto = { zone ->
+                        photoFor = zone
+                        pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
+                    },
+                    onLocalChange = { mediaTick += 1 },
                     onConnect = { ensurePermissionAndScan() },
                     onDisconnect = { ble.disconnect() },
                     onCommand = { ble.send(it) },
@@ -228,6 +270,9 @@ private fun AppShell(
     wifiOn: Boolean,
     wifiSsid: String,
     wifiIp: String,
+    mediaTick: Int,
+    onPickPhoto: (Int) -> Unit,
+    onLocalChange: () -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onCommand: (String) -> Unit,
@@ -279,10 +324,10 @@ private fun AppShell(
         },
     ) { padding ->
         when (tab) {
-            AppTab.Home -> HomePage(link, device, history, volumes, onCommand, Modifier.padding(padding))
+            AppTab.Home -> HomePage(link, device, history, volumes, mediaTick, onCommand, Modifier.padding(padding))
             AppTab.Settings -> SettingsPage(
-                link, device, lows, highs, wifiOn, wifiSsid, wifiIp,
-                onConnect, onDisconnect, onCommand, Modifier.padding(padding),
+                link, device, lows, highs, wifiOn, wifiSsid, wifiIp, mediaTick,
+                onPickPhoto, onLocalChange, onConnect, onDisconnect, onCommand, Modifier.padding(padding),
             )
             AppTab.Debug -> DebugPage(link, device, onCommand, Modifier.padding(padding))
         }
@@ -323,6 +368,7 @@ private fun HomePage(
     device: DeviceUi?,
     history: List<HistUi>,
     volumes: MutableMap<Int, Int>,
+    mediaTick: Int,
     onCommand: (String) -> Unit,
     modifier: Modifier,
 ) {
@@ -330,18 +376,25 @@ private fun HomePage(
         if (device == null) {
             HintCard("还没连上灌溉器", "打开 App 会自动连一次，也可以到「设置」里再连。")
         } else {
+            val watering = if ((device.state == 2 || device.state == 3) && device.activeValve >= 0) {
+                device.activeValve
+            } else {
+                -1
+            }
+            PotOverview(device.zones, watering, mediaTick)
             StatusCard(device, onCommand)
             device.zones.forEach { zone ->
                 key(zone.index) {
                     HomeZoneCard(
                         zone,
                         volumes[zone.index] ?: nearestVolume(zone.volume),
+                        mediaTick,
                         onVolume = { volumes[zone.index] = it },
                         onCommand = onCommand,
                     )
                 }
             }
-            HistoryCard(history, device.zones)
+            HistoryCard(history, mediaTick)
         }
     }
 }
@@ -355,6 +408,9 @@ private fun SettingsPage(
     wifiOn: Boolean,
     wifiSsid: String,
     wifiIp: String,
+    mediaTick: Int,
+    onPickPhoto: (Int) -> Unit,
+    onLocalChange: () -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onCommand: (String) -> Unit,
@@ -386,7 +442,7 @@ private fun SettingsPage(
             WifiCard(wifiOn, wifiSsid, wifiIp, device.wifiUp, onCommand)
             device.zones.forEach { zone ->
                 key(zone.index) {
-                    SettingsZoneCard(zone, lows, highs, onCommand)
+                    SettingsZoneCard(zone, lows, highs, mediaTick, onPickPhoto, onLocalChange, onCommand)
                 }
             }
         }
@@ -502,17 +558,19 @@ private fun ServiceCard(device: DeviceUi, onCommand: (String) -> Unit) {
 private fun HomeZoneCard(
     zone: ZoneUi,
     volume: Int,
+    mediaTick: Int,
     onVolume: (Int) -> Unit,
     onCommand: (String) -> Unit,
 ) {
     val tone = zoneTone(zone)
     val ml = nearestVolume(volume)
     val index = VolumeStops.indexOf(ml).coerceAtLeast(0)
+    val alias = localName(zone.index, mediaTick)
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text(zone.name, color = Color.White, style = MaterialTheme.typography.titleMedium)
+                    Text(alias.ifBlank { "${zone.index + 1}#" }, color = Color.White, style = MaterialTheme.typography.titleMedium)
                     Text(
                         zoneLabel(zone) + if (zone.schedule) " · 定时 %02d:%02d".format(zone.hour, zone.minute) else "",
                         color = tone,
@@ -574,28 +632,55 @@ private fun SettingsZoneCard(
     zone: ZoneUi,
     lows: MutableMap<Int, String>,
     highs: MutableMap<Int, String>,
+    mediaTick: Int,
+    onPickPhoto: (Int) -> Unit,
+    onLocalChange: () -> Unit,
     onCommand: (String) -> Unit,
 ) {
+    val context = LocalContext.current
     val low = lows[zone.index] ?: zone.low.toString()
     val high = highs[zone.index] ?: zone.high.toString()
-    var name by remember(zone.name) { mutableStateOf(zone.name) }
+    var name by remember(zone.index, mediaTick) { mutableStateOf(ZoneStore.name(context, zone.index)) }
     var schOn by remember(zone.schedule) { mutableStateOf(zone.schedule) }
     var hour by remember(zone.hour) { mutableStateOf(zone.hour.coerceIn(0, 23)) }
     var minute by remember(zone.minute) { mutableStateOf(zone.minute.coerceIn(0, 59)) }
+    val photo = remember(zone.index, mediaTick) { ZoneStore.bitmap(context, zone.index) }
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("${zone.index + 1}#", color = Muted)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .height(72.dp)
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF143028)),
+                ) {
+                    if (photo != null) {
+                        Image(photo.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onPickPhoto(zone.index) }, modifier = Modifier.fillMaxWidth()) { Text("实拍图") }
+                    if (photo != null) {
+                        DarkButton("去掉图片") {
+                            ZoneStore.clearPhoto(context, zone.index)
+                            onLocalChange()
+                        }
+                    }
+                }
+            }
             OutlinedTextField(
                 value = name,
-                onValueChange = { if (it.encodeToByteArray().size <= 13) name = it },
-                label = { Text("盆名") },
+                onValueChange = { if (it.length <= 12) name = it },
+                label = { Text("别名，只存在这台手机") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 colors = fieldColors(),
             )
-            DarkButton("保存名称") {
-                val trimmed = name.trim().ifBlank { "${zone.index + 1}# 盆" }
-                onCommand("name ${zone.index} $trimmed")
+            DarkButton("保存别名") {
+                ZoneStore.setName(context, zone.index, name)
+                onLocalChange()
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -651,7 +736,7 @@ private fun DebugZoneCard(
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(zone.name, color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Text(localName(zone.index, 0).ifBlank { "${zone.index + 1}#" }, color = Color.White, style = MaterialTheme.typography.titleMedium)
             Text("ADC ${zone.adc}", color = Muted)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
@@ -896,7 +981,94 @@ private fun FlowCard(device: DeviceUi, onCommand: (String) -> Unit) {
 }
 
 @Composable
-private fun HistoryCard(history: List<HistUi>, zones: List<ZoneUi>) {
+private fun localName(zone: Int, tick: Int): String {
+    val context = LocalContext.current
+    return remember(zone, tick) { ZoneStore.name(context, zone) }
+}
+
+@Composable
+private fun PotOverview(zones: List<ZoneUi>, watering: Int, mediaTick: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        zones.chunked(4).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { zone ->
+                    PotTile(
+                        zone,
+                        watering == zone.index,
+                        mediaTick,
+                        Modifier.weight(1f),
+                    )
+                }
+                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PotTile(zone: ZoneUi, watering: Boolean, mediaTick: Int, modifier: Modifier) {
+    val context = LocalContext.current
+    val alias = localName(zone.index, mediaTick)
+    val photo = remember(zone.index, mediaTick) { ZoneStore.bitmap(context, zone.index) }
+    val tone = zoneTone(zone)
+    Box(
+        modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF143028)),
+    ) {
+        if (photo != null) {
+            Image(
+                photo.asImageBitmap(),
+                contentDescription = alias.ifBlank { "${zone.index + 1}#" },
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        if (watering) WateringOverlay()
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE60F1419))))
+                .padding(horizontal = 6.dp, vertical = 6.dp),
+        ) {
+            Column {
+                if (alias.isNotBlank()) {
+                    Text(alias, color = Color.White, maxLines = 1, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                }
+                Text(
+                    if (zone.valid) "${zone.pct}%" else "--",
+                    color = if (watering) Color(0xFF7AD7FF) else tone,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WateringOverlay() {
+    val shift = rememberInfiniteTransition(label = "water")
+    val fall by shift.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing)),
+        label = "fall",
+    )
+    Canvas(Modifier.fillMaxSize()) {
+        drawRect(Color(0x3327B4FF), size = Size(size.width, size.height))
+        repeat(3) { i ->
+            val y = ((fall + i * 0.33f) % 1f) * size.height
+            val x = size.width * (0.22f + i * 0.28f)
+            drawCircle(Color(0xCCB7E8FF), radius = size.minDimension * 0.07f, center = Offset(x, y))
+        }
+    }
+}
+
+@Composable
+private fun HistoryCard(history: List<HistUi>, mediaTick: Int) {
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("最近浇水", color = Color.White, style = MaterialTheme.typography.titleMedium)
@@ -904,7 +1076,7 @@ private fun HistoryCard(history: List<HistUi>, zones: List<ZoneUi>) {
                 Text("还没有记录", color = Muted)
             } else {
                 history.take(8).forEach { row ->
-                    val name = zones.getOrNull(row.zone)?.name ?: "${row.zone + 1}#"
+                    val name = localName(row.zone, mediaTick).ifBlank { "${row.zone + 1}#" }
                     Text(
                         "${histClock(row.ts)}  $name  ${row.ml} ml  ${Protocol.triggerText(row.trigger)}",
                         color = Color.White,
