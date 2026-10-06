@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import android.net.Uri
 import androidx.activity.result.PickVisualMediaRequest
@@ -40,6 +41,9 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
@@ -80,6 +84,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.LaunchedEffect
@@ -332,6 +337,7 @@ private fun AppShell(
     onCommand: (String) -> Unit,
 ) {
     var tab by remember { mutableStateOf(AppTab.Home) }
+    var showHistory by remember { mutableStateOf(false) }
     val volumes = remember { mutableStateMapOf<Int, Int>() }
     val lows = remember { mutableStateMapOf<Int, String>() }
     val highs = remember { mutableStateMapOf<Int, String>() }
@@ -362,7 +368,10 @@ private fun AppShell(
                 AppTab.entries.forEach { item ->
                     NavigationBarItem(
                         selected = tab == item,
-                        onClick = { tab = item },
+                        onClick = {
+                            tab = item
+                            showHistory = false
+                        },
                         icon = { Icon(item.icon, contentDescription = item.label) },
                         label = { Text(item.label) },
                         colors = NavigationBarItemDefaults.colors(
@@ -377,8 +386,14 @@ private fun AppShell(
             }
         },
     ) { padding ->
-        when (tab) {
-            AppTab.Home -> HomePage(link, device, history, volumes, online, mediaTick, onCommand, Modifier.padding(padding))
+        if (showHistory) {
+            BackHandler { showHistory = false }
+            HistoryPage(history, mediaTick, { showHistory = false }, Modifier.padding(padding))
+        } else when (tab) {
+            AppTab.Home -> HomePage(
+                link, device, history, volumes, online, mediaTick,
+                { showHistory = true }, onCommand, Modifier.padding(padding),
+            )
             AppTab.Settings -> SettingsPage(
                 link, device, lows, highs, wifiOn, wifiSsid, wifiIp, online, mediaTick,
                 onPickPhoto, onLocalChange, onConnect, onDisconnect, onCommand, Modifier.padding(padding),
@@ -393,26 +408,12 @@ private fun PageColumn(
     title: String,
     link: String,
     modifier: Modifier,
-    onNearEnd: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val scroll = rememberScrollState()
-    if (onNearEnd != null) {
-        var armed by remember { mutableStateOf(true) }
-        LaunchedEffect(scroll.value, scroll.maxValue) {
-            val atEnd = scroll.maxValue > 0 && scroll.value >= scroll.maxValue - 160
-            if (atEnd && armed) {
-                armed = false
-                onNearEnd()
-            } else if (!atEnd) {
-                armed = true
-            }
-        }
-    }
     Column(
         modifier
             .fillMaxSize()
-            .verticalScroll(scroll)
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -438,18 +439,11 @@ private fun HomePage(
     volumes: MutableMap<Int, Int>,
     online: Boolean,
     mediaTick: Int,
+    onOpenHistory: () -> Unit,
     onCommand: (String) -> Unit,
     modifier: Modifier,
 ) {
-    var historyShown by remember { mutableIntStateOf(20) }
-    PageColumn(
-        "首页",
-        link,
-        modifier,
-        onNearEnd = {
-            if (historyShown < history.size) historyShown += 20
-        },
-    ) {
+    PageColumn("首页", link, modifier) {
         if (device == null) {
             HintCard("还没连上灌溉器", "打开 App 会自动连一次，也可以到「设置」里再连。")
         } else {
@@ -473,7 +467,7 @@ private fun HomePage(
                     )
                 }
             }
-            HistoryCard(history, mediaTick, historyShown)
+            HistoryCard(history, mediaTick, onOpenHistory)
         }
     }
 }
@@ -1323,34 +1317,75 @@ private fun WateringOverlay() {
 }
 
 @Composable
-private fun HistoryCard(history: List<HistUi>, mediaTick: Int, shown: Int) {
-    val visible = history.take(shown)
+private fun HistoryCard(history: List<HistUi>, mediaTick: Int, onOpen: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("浇水记录", color = Color.White, style = MaterialTheme.typography.titleMedium)
-            Text("共 ${history.size} 条", color = Muted)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("浇水记录", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Text("共 ${history.size} 条", color = Muted)
+            }
             if (history.isEmpty()) {
                 Text("还没有记录", color = Muted)
             } else {
-                visible.forEach { row ->
-                    val name = localName(row.zone, mediaTick).ifBlank { "${row.zone + 1}#" }
-                    val outcome = Protocol.outcomeText(row.outcome)
-                    val detail = if (outcome.isEmpty()) {
-                        Protocol.triggerText(row.trigger)
-                    } else {
-                        "${Protocol.triggerText(row.trigger)} · $outcome"
+                history.take(3).forEach { HistoryLine(it, mediaTick) }
+                if (history.size > 3) {
+                    TextButton(onClick = onOpen, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                        Text("查看全部")
                     }
-                    Text(
-                        "${histClock(row.ts)}  $name  ${row.ml} ml  $detail",
-                        color = if (row.outcome == 0) Color.White else Warn,
-                    )
-                }
-                if (visible.size < history.size) {
-                    Text("上滑加载更早的记录", color = Muted)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun HistoryPage(
+    history: List<HistUi>,
+    mediaTick: Int,
+    onBack: () -> Unit,
+    modifier: Modifier,
+) {
+    var shown by remember { mutableIntStateOf(30) }
+    val listState = rememberLazyListState()
+    val visible = history.take(shown)
+    LaunchedEffect(listState, shown, history.size) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+            .collect { last ->
+                if (last >= shown - 3 && shown < history.size) shown += 30
+            }
+    }
+    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = onBack, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                Text("返回")
+            }
+            Text("浇水记录", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+            Text("共 ${history.size} 条", color = Muted)
+        }
+        if (history.isEmpty()) {
+            Text("还没有记录", color = Muted)
+        } else {
+            LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                items(visible.size) { index ->
+                    HistoryLine(visible[index], mediaTick)
+                }
+                if (shown < history.size) {
+                    item { Text("继续上滑", color = Muted) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryLine(row: HistUi, mediaTick: Int) {
+    val name = localName(row.zone, mediaTick).ifBlank { "${row.zone + 1}#" }
+    val outcome = Protocol.outcomeText(row.outcome)
+    val detail = if (outcome.isEmpty()) Protocol.triggerText(row.trigger) else "${Protocol.triggerText(row.trigger)} · $outcome"
+    Text(
+        "${histClock(row.ts)}  $name  ${row.ml} ml  $detail",
+        color = if (row.outcome == 0) Color.White else Warn,
+    )
 }
 
 private fun histClock(ts: Long): String {
