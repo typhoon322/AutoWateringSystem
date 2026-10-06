@@ -38,6 +38,8 @@ class BleClient(
     private var seen = 0
     private val writes = ArrayDeque<String>()
     private var writing = false
+    private var writeGen = 0
+    private var writeFails = 0
 
     private val cccd = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
@@ -81,6 +83,10 @@ class BleClient(
 
     fun disconnect() {
         stopScan()
+        writeGen += 1
+        writes.clear()
+        writing = false
+        writeFails = 0
         gatt?.close()
         gatt = null
         cmdChar = null
@@ -95,16 +101,29 @@ class BleClient(
     @SuppressLint("MissingPermission")
     private fun pumpWrite() {
         if (writing) return
-        val line = writes.removeFirstOrNull() ?: return
-        val ch = cmdChar ?: return
-        val g = gatt ?: return
+        val line = writes.firstOrNull() ?: return
+        val ch = cmdChar
+        val g = gatt
+        if (ch == null || g == null) return
         writing = true
         ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         ch.value = line.toByteArray(Charsets.UTF_8)
-        if (!g.writeCharacteristic(ch)) {
-            writing = false
-            main.post { onReply("发送失败") }
+        if (g.writeCharacteristic(ch)) {
+            writes.removeFirst()
+            writeFails = 0
+            return
         }
+        writing = false
+        writeFails += 1
+        val gen = writeGen
+        if (writeFails >= 5) {
+            writes.removeFirst()
+            writeFails = 0
+            main.post { onReply("发送失败") }
+            main.post { if (gen == writeGen) pumpWrite() }
+            return
+        }
+        main.postDelayed({ if (gen == writeGen) pumpWrite() }, 200)
     }
 
     private fun isLangua(result: ScanResult): Boolean {
@@ -151,8 +170,14 @@ class BleClient(
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 g.requestMtu(185)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                cmdChar = null
-                main.post { onLink("已断开") }
+                writeGen += 1
+                main.post {
+                    writes.clear()
+                    writing = false
+                    writeFails = 0
+                    cmdChar = null
+                    onLink("已断开")
+                }
                 g.close()
                 if (gatt == g) gatt = null
             }
@@ -172,7 +197,6 @@ class BleClient(
             }
             cmdChar = svc.getCharacteristic(UUID.fromString(Protocol.CMD))
             enableNotify(g, svc.getCharacteristic(UUID.fromString(Protocol.STATUS)))
-            main.post { onLink("已连接") }
         }
 
         override fun onCharacteristicWrite(
@@ -198,13 +222,20 @@ class BleClient(
 
         @SuppressLint("MissingPermission")
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                main.post { onLink("通知开启失败") }
+                return
+            }
             val uuid = descriptor.characteristic.uuid.toString()
             if (uuid == Protocol.STATUS) {
                 val reply = g.getService(UUID.fromString(Protocol.SERVICE))
                     ?.getCharacteristic(UUID.fromString(Protocol.REPLY))
                 enableNotify(g, reply)
             } else if (uuid == Protocol.REPLY) {
-                send("time ${System.currentTimeMillis() / 1000}")
+                main.post {
+                    onLink("已连接")
+                    send("time ${System.currentTimeMillis() / 1000}")
+                }
             }
         }
     }
