@@ -120,7 +120,10 @@ class MainActivity : ComponentActivity() {
         val zone = photoFor
         if (uri != null && zone >= 0) {
             ZoneStore.savePhoto(this, zone, uri)
+            AppLog.op(this, "实拍图 ${zone + 1}# 已保存")
             mediaTick += 1
+        } else if (zone >= 0) {
+            AppLog.op(this, "实拍图 ${zone + 1}# 取消选择")
         }
         photoFor = -1
     }
@@ -133,6 +136,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLog.op(this, "打开 App")
         SnapshotStore.load(this)?.let { saved ->
             device = saved.device
             history = HistoryArchive.merge(this, saved.history)
@@ -145,10 +149,14 @@ class MainActivity : ComponentActivity() {
         }
         ble = BleClient(
             this,
-            onLink = { linkText = it },
+            onLink = {
+                linkText = it
+                AppLog.op(this, "连接状态 $it")
+            },
             onDevice = {
                 device = it
                 persistSnapshot()
+                AppLog.status(this, it)
             },
             onReply = { raw ->
                 val text = raw.trim()
@@ -211,13 +219,23 @@ class MainActivity : ComponentActivity() {
                     online = linkText == "已连接",
                     mediaTick = mediaTick,
                     onPickPhoto = { zone ->
+                        AppLog.op(this, "选择实拍图 ${zone + 1}#")
                         photoFor = zone
                         pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
                     },
                     onLocalChange = { mediaTick += 1 },
-                    onConnect = { ensurePermissionAndScan() },
-                    onDisconnect = { ble.disconnect() },
-                    onCommand = { if (linkText == "已连接") ble.send(it) },
+                    onConnect = {
+                        AppLog.op(this, "点击连接")
+                        ensurePermissionAndScan()
+                    },
+                    onDisconnect = {
+                        AppLog.op(this, "点击断开")
+                        ble.disconnect()
+                    },
+                    onCommand = { cmd ->
+                        if (linkText == "已连接") ble.send(cmd)
+                        else AppLog.op(this, "未发送 $cmd")
+                    },
                 )
             }
         }
@@ -515,6 +533,22 @@ private fun DebugPage(
                 )
             }
         }
+        LogCard()
+    }
+}
+
+@Composable
+private fun LogCard() {
+    val context = LocalContext.current
+    Card(colors = CardDefaults.cardColors(containerColor = CardBg), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("维护日志", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Text("操作和蓝牙往来存在这台手机，保留最近 30 天。WiFi 密码不会写入。", color = Muted)
+            Button(
+                onClick = { (context as? android.app.Activity)?.let { AppLog.share(it) } },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("分享日志") }
+        }
     }
 }
 
@@ -731,6 +765,7 @@ private fun SettingsZoneCard(
                     if (photo != null) {
                         DarkButton("去掉图片") {
                             ZoneStore.clearPhoto(context, zone.index)
+                            AppLog.op(context, "去掉实拍图 ${zone.index + 1}#")
                             onLocalChange()
                         }
                     }
@@ -746,6 +781,7 @@ private fun SettingsZoneCard(
             )
             DarkButton("保存别名") {
                 ZoneStore.setName(context, zone.index, name)
+                AppLog.op(context, "别名 ${zone.index + 1}# ${name.trim()}")
                 onLocalChange()
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

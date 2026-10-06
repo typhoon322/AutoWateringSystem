@@ -111,6 +111,7 @@ class BleClient(
         if (g.writeCharacteristic(ch)) {
             writes.removeFirst()
             writeFails = 0
+            AppLog.sent(app, line)
             return
         }
         writing = false
@@ -119,6 +120,7 @@ class BleClient(
         if (writeFails >= 5) {
             writes.removeFirst()
             writeFails = 0
+            AppLog.ble(app, "发送失败 $line")
             main.post { onReply("发送失败") }
             main.post { if (gen == writeGen) pumpWrite() }
             return
@@ -152,6 +154,7 @@ class BleClient(
 
         override fun onScanFailed(errorCode: Int) {
             scanning = false
+            AppLog.ble(app, "扫描失败 $errorCode")
             main.post { onLink("扫描失败 $errorCode") }
         }
     }
@@ -168,8 +171,10 @@ class BleClient(
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                AppLog.ble(app, "GATT 已连接 status=$status")
                 g.requestMtu(185)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                AppLog.ble(app, "GATT 断开 status=$status")
                 writeGen += 1
                 main.post {
                     writes.clear()
@@ -185,6 +190,7 @@ class BleClient(
 
         @SuppressLint("MissingPermission")
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            AppLog.ble(app, "MTU $mtu status=$status")
             g.discoverServices()
         }
 
@@ -223,6 +229,7 @@ class BleClient(
         @SuppressLint("MissingPermission")
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
+                AppLog.ble(app, "通知开启失败 status=$status")
                 main.post { onLink("通知开启失败") }
                 return
             }
@@ -253,7 +260,11 @@ class BleClient(
         if (value == null) return
         when (ch.uuid.toString()) {
             Protocol.STATUS -> onStatusChunk(value)
-            Protocol.REPLY -> main.post { onReply(value.toString(Charsets.UTF_8)) }
+            Protocol.REPLY -> {
+                val text = value.toString(Charsets.UTF_8)
+                AppLog.received(app, text)
+                main.post { onReply(text) }
+            }
         }
     }
 
@@ -275,7 +286,11 @@ class BleClient(
             part.copyInto(payload, p)
             p += part.size
         }
-        val ui = Protocol.parse(payload) ?: return
+        val ui = Protocol.parse(payload)
+        if (ui == null) {
+            AppLog.ble(app, "状态解析失败 ${payload.size} 字节")
+            return
+        }
         main.post { onDevice(ui) }
     }
 }
