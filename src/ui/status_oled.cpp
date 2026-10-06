@@ -6,6 +6,7 @@
 #include <U8g2lib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "bus/i2c_bus.h"
 #include "config.h"
@@ -79,7 +80,25 @@ bool formatAction(char *out, size_t cap, const SystemStatus &status) {
 }
 
 void drawAction(const char *text) {
-  g_oled.drawUTF8(0, 28, text);
+  g_oled.drawUTF8(0, 40, text);
+}
+
+bool clockReady() {
+  return time(nullptr) >= 1700000000L;
+}
+
+void drawClockLine() {
+  char line[28];
+  if (!clockReady()) {
+    snprintf(line, sizeof(line), "请连手机蓝牙对时");
+  } else {
+    time_t now = time(nullptr);
+    struct tm ti;
+    localtime_r(&now, &ti);
+    snprintf(line, sizeof(line), "%02d-%02d %02d:%02d", ti.tm_mon + 1, ti.tm_mday, ti.tm_hour,
+             ti.tm_min);
+  }
+  g_oled.drawUTF8(0, 14, line);
 }
 
 void drawZonePages(const ZoneStatus *zones, const ZoneConfig *configs, uint8_t zone_count) {
@@ -87,7 +106,7 @@ void drawZonePages(const ZoneStatus *zones, const ZoneConfig *configs, uint8_t z
   static uint32_t page_ms = 0;
   static bool ready = false;
   const uint32_t now = millis();
-  const uint8_t pages = zone_count == 0 ? 1 : static_cast<uint8_t>((zone_count + 3) / 4);
+  const uint8_t pages = zone_count == 0 ? 1 : static_cast<uint8_t>((zone_count + 2) / 3);
   if (!ready) {
     page_ms = now;
     ready = true;
@@ -102,8 +121,8 @@ void drawZonePages(const ZoneStatus *zones, const ZoneConfig *configs, uint8_t z
     page = 0;
   }
 
-  const uint8_t start = page * 4;
-  for (uint8_t row = 0; row < 4; ++row) {
+  const uint8_t start = page * 3;
+  for (uint8_t row = 0; row < 3; ++row) {
     const uint8_t i = start + row;
     if (i >= zone_count) {
       break;
@@ -116,7 +135,7 @@ void drawZonePages(const ZoneStatus *zones, const ZoneConfig *configs, uint8_t z
     } else {
       snprintf(line, sizeof(line), "%u# 未接", static_cast<unsigned>(i + 1));
     }
-    g_oled.drawUTF8(0, 15 + static_cast<int>(row) * 16, line);
+    g_oled.drawUTF8(0, 30 + static_cast<int>(row) * 16, line);
   }
 }
 }  // namespace
@@ -158,6 +177,7 @@ void status_oled_show(const SystemStatus &status, const ZoneStatus *zones,
   g_oled.clearBuffer();
   g_oled.setFont(u8g2_font_wqy12_t_gb2312);
   (void)state_text;
+  drawClockLine();
 
   if (millis() < g_note_until_ms && g_note[0] != '\0') {
     drawAction(g_note);
