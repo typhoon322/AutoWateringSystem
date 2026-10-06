@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -109,6 +110,7 @@ class MainActivity : ComponentActivity() {
     private var mediaTick by mutableIntStateOf(0)
     private var photoFor = -1
     private var soakCounts by mutableStateOf<Map<Int, Int>>(emptyMap())
+    private var soakPaused by mutableStateOf<Set<Int>>(emptySet())
 
     private val permissionLaunch = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -149,6 +151,7 @@ class MainActivity : ComponentActivity() {
             history = HistoryArchive.load(this)
         }
         soakCounts = SoakLearn.counts(this)
+        soakPaused = SoakLearn.paused(this)
         ble = BleClient(
             this,
             onLink = {
@@ -164,7 +167,10 @@ class MainActivity : ComponentActivity() {
                     window.decorView.post {
                         if (linkText != "已连接") return@post
                         val step = SoakLearn.onStatus(this, it)
-                        if (step.logged) soakCounts = SoakLearn.counts(this)
+                        if (step.logged) {
+                            soakCounts = SoakLearn.counts(this)
+                            soakPaused = SoakLearn.paused(this)
+                        }
                         step.command?.let { cmd ->
                             AppLog.op(this, "写入渗水时间 $cmd")
                             ble.send(cmd)
@@ -233,6 +239,12 @@ class MainActivity : ComponentActivity() {
                     online = linkText == "已连接",
                     mediaTick = mediaTick,
                     soakCounts = soakCounts,
+                    soakPaused = soakPaused,
+                    onRestartSoak = { zone ->
+                        SoakLearn.restart(this, zone)
+                        soakCounts = SoakLearn.counts(this)
+                        soakPaused = SoakLearn.paused(this)
+                    },
                     onPickPhoto = { zone ->
                         AppLog.op(this, "选择实拍图 ${zone + 1}#")
                         photoFor = zone
@@ -340,6 +352,8 @@ private fun AppShell(
     online: Boolean,
     mediaTick: Int,
     soakCounts: Map<Int, Int>,
+    soakPaused: Set<Int>,
+    onRestartSoak: (Int) -> Unit,
     onPickPhoto: (Int) -> Unit,
     onLocalChange: () -> Unit,
     onConnect: () -> Unit,
@@ -393,7 +407,10 @@ private fun AppShell(
         },
     ) { padding ->
         when (tab) {
-            AppTab.Home -> HomePage(link, device, history, volumes, online, mediaTick, soakCounts, onCommand, Modifier.padding(padding))
+            AppTab.Home -> HomePage(
+                link, device, history, volumes, online, mediaTick, soakCounts, soakPaused,
+                onRestartSoak, onCommand, Modifier.padding(padding),
+            )
             AppTab.Settings -> SettingsPage(
                 link, device, lows, highs, wifiOn, wifiSsid, wifiIp, online, mediaTick,
                 onPickPhoto, onLocalChange, onConnect, onDisconnect, onCommand, Modifier.padding(padding),
@@ -440,6 +457,8 @@ private fun HomePage(
     online: Boolean,
     mediaTick: Int,
     soakCounts: Map<Int, Int>,
+    soakPaused: Set<Int>,
+    onRestartSoak: (Int) -> Unit,
     onCommand: (String) -> Unit,
     modifier: Modifier,
 ) {
@@ -463,6 +482,8 @@ private fun HomePage(
                         mediaTick,
                         online,
                         soakCounts[zone.index] ?: 0,
+                        soakPaused.contains(zone.index),
+                        onRestartSoak = { onRestartSoak(zone.index) },
                         onVolume = { volumes[zone.index] = it },
                         onCommand = onCommand,
                     )
@@ -514,7 +535,7 @@ private fun SettingsPage(
             HintCard("还没有盆的设置", "连上之后可以改每盆的湿度上下限。")
         } else {
             if (!online) OfflineNote()
-            Text("低于下限按设定水量浇一轮。浇完先等渗水，湿度连续 3 分钟变化不超过 5% 才算稳住。App 会记下每次用了多久，两次以后按偏长的那次自动改等待时间。上限表示偏湿。", color = Muted)
+            Text("低于下限按设定水量浇一轮。浇完先等渗水。计算在手机上，浇完后要保持连接才会记。至少记 3 次，并且最新一次和上一次的分钟数一样，就会停算。换盆或换植物后，点该盆的「重新计算」。上限表示偏湿。", color = Muted)
             RulesCard(device, online, onCommand)
             WifiCard(wifiOn, wifiSsid, wifiIp, device.wifiUp, online, onCommand)
             device.zones.forEach { zone ->
@@ -676,6 +697,8 @@ private fun HomeZoneCard(
     mediaTick: Int,
     online: Boolean,
     soakCount: Int,
+    soakPaused: Boolean,
+    onRestartSoak: () -> Unit,
     onVolume: (Int) -> Unit,
     onCommand: (String) -> Unit,
 ) {
@@ -693,10 +716,17 @@ private fun HomeZoneCard(
                         color = tone,
                     )
                     Text(
-                        "渗水 ${zone.soakMin} 分钟" + if (soakCount > 0) " · 已记 $soakCount 次" else "",
+                        when {
+                            soakPaused -> "渗水 ${zone.soakMin} 分钟 · 已稳定"
+                            soakCount > 0 -> "渗水 ${zone.soakMin} 分钟 · 已记 $soakCount 次 · 计算中"
+                            else -> "渗水 ${zone.soakMin} 分钟 · 计算中"
+                        },
                         color = Muted,
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    TextButton(onClick = onRestartSoak, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                        Text("重新计算")
+                    }
                 }
                 Text("${if (zone.valid) zone.pct.toString() else "--"}%", color = tone, style = MaterialTheme.typography.headlineSmall)
             }

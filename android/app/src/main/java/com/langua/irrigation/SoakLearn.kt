@@ -27,6 +27,10 @@ object SoakLearn {
     private val lock = Any()
     private val watches = HashMap<Int, Watch>()
     private val pending = LinkedHashMap<Int, Int>()
+    private val paused = HashSet<Int>()
+    private val lastMin = HashMap<Int, Int>()
+    private val agreed = HashSet<Int>()
+    private var stateReady = false
     private var wateringZone = -1
     private var lastSent = ""
     private var lastSentAt = 0L
@@ -41,8 +45,31 @@ object SoakLearn {
     fun counts(context: Context): Map<Int, Int> =
         load(context).groupingBy { it.zone }.eachCount()
 
+    fun paused(context: Context): Set<Int> {
+        synchronized(lock) {
+            ensureState(context)
+            return paused.toSet()
+        }
+    }
+
+    fun restart(context: Context, zone: Int) {
+        synchronized(lock) {
+            ensureState(context)
+            watches.remove(zone)
+            pending.remove(zone)
+            paused.remove(zone)
+            lastMin.remove(zone)
+            agreed.remove(zone)
+            if (wateringZone == zone) wateringZone = -1
+            write(context, load(context).filter { it.zone != zone })
+            saveState(context)
+            AppLog.op(context, "重新计算渗水 ${zone + 1}#")
+        }
+    }
+
     fun onStatus(context: Context, device: DeviceUi): Step {
         synchronized(lock) {
+            ensureState(context)
             val watering = (device.state == 2 || device.state == 3) && device.activeValve >= 0
             if (watering) {
                 wateringZone = device.activeValve
@@ -50,7 +77,7 @@ object SoakLearn {
                 val zone = wateringZone
                 wateringZone = -1
                 val pct = device.zones.getOrNull(zone)?.takeIf { it.valid }?.pct
-                if (pct != null && watches[zone] == null) {
+                if (pct != null && watches[zone] == null && !paused.contains(zone)) {
                     val watch = Watch(zone, System.currentTimeMillis(), pct)
                     watch.samples.add(0L to pct)
                     watch.lastAt = watch.t0
@@ -62,6 +89,10 @@ object SoakLearn {
             val now = System.currentTimeMillis()
             val finished = ArrayList<Int>()
             for ((zone, watch) in watches) {
+                if (paused.contains(zone)) {
+                    finished.add(zone)
+                    continue
+                }
                 val ui = device.zones.getOrNull(zone) ?: continue
                 if (!ui.valid) continue
                 val elapsed = now - watch.t0
@@ -77,12 +108,22 @@ object SoakLearn {
                 append(context, zone, settleSec, watch.startPct, endPct)
                 logged = true
                 finished.add(zone)
-                val minutes = recommend(load(context).filter { it.zone == zone }.map { it.settleSec })
-                if (minutes != null && abs(minutes - ui.soakMin) >= 2) {
+                val secs = load(context).filter { it.zone == zone }.map { it.settleSec }
+                val minutes = recommend(secs)
+                val previous = lastMin[zone]
+                if (minutes != null && previous != null && secs.size >= 3 && abs(minutes - previous) < 2) {
+                    agreed.add(zone)
+                } else {
+                    agreed.remove(zone)
+                }
+                if (minutes != null) lastMin[zone] = minutes
+                if (minutes != null && abs(minutes - ui.soakMin) >= 2 && !paused.contains(zone)) {
                     pending[zone] = minutes
                 }
+                saveState(context)
             }
             finished.forEach { watches.remove(it) }
+            if (markSettled(context, device)) logged = true
             for (zone in pending.keys.toList()) {
                 val current = device.zones.getOrNull(zone)?.soakMin ?: continue
                 val want = pending[zone] ?: continue
@@ -112,6 +153,50 @@ object SoakLearn {
         return recent.maxOf { it.second } - recent.minOf { it.second } <= BAND
     }
 
+    private fun markSettled(context: Context, device: DeviceUi): Boolean {
+        var changed = false
+        val rows = load(context)
+        for (ui in device.zones) {
+            if (!agreed.contains(ui.index) || paused.contains(ui.index)) continue
+            val minutes = recommend(rows.filter { it.zone == ui.index }.map { it.settleSec }) ?: continue
+            if (abs(minutes - ui.soakMin) >= 2) continue
+            paused.add(ui.index)
+            agreed.remove(ui.index)
+            pending.remove(ui.index)
+            watches.remove(ui.index)
+            changed = true
+            AppLog.op(context, "渗水计算暂停 ${ui.index + 1}# $minutes 分钟")
+        }
+        if (changed) saveState(context)
+        return changed
+    }
+
+    private fun ensureState(context: Context) {
+        if (stateReady) return
+        val prefs = context.getSharedPreferences("soak_learn", Context.MODE_PRIVATE)
+        paused.clear()
+        paused.addAll(prefs.getStringSet("paused", emptySet()).orEmpty().mapNotNull { it.toIntOrNull() })
+        agreed.clear()
+        agreed.addAll(prefs.getStringSet("agreed", emptySet()).orEmpty().mapNotNull { it.toIntOrNull() })
+        lastMin.clear()
+        prefs.getString("last", null)?.split(',')?.forEach { part ->
+            val kv = part.split('=')
+            if (kv.size != 2) return@forEach
+            val zone = kv[0].toIntOrNull() ?: return@forEach
+            val minutes = kv[1].toIntOrNull() ?: return@forEach
+            lastMin[zone] = minutes
+        }
+        stateReady = true
+    }
+
+    private fun saveState(context: Context) {
+        context.getSharedPreferences("soak_learn", Context.MODE_PRIVATE).edit()
+            .putStringSet("paused", paused.map { it.toString() }.toSet())
+            .putStringSet("agreed", agreed.map { it.toString() }.toSet())
+            .putString("last", lastMin.entries.joinToString(",") { "${it.key}=${it.value}" })
+            .apply()
+    }
+
     private fun recommend(settleSec: List<Int>): Int? {
         if (settleSec.size < 2) return null
         val sorted = settleSec.sorted()
@@ -125,11 +210,14 @@ object SoakLearn {
     private fun append(context: Context, zone: Int, settleSec: Int, startPct: Int, endPct: Int) {
         val rows = load(context).toMutableList()
         rows.add(Obs(zone, settleSec))
-        val kept = rows.groupBy { it.zone }.values.flatMap { it.takeLast(KEEP) }
-        file(context).writeText(
-            kept.joinToString("\n") { "${System.currentTimeMillis() / 1000}\t${it.zone}\t${it.settleSec}" }
-        )
+        write(context, rows.groupBy { it.zone }.values.flatMap { it.takeLast(KEEP) })
         AppLog.op(context, "渗水记录 ${zone + 1}# ${settleSec / 60} 分钟 $startPct%→$endPct%")
+    }
+
+    private fun write(context: Context, rows: List<Obs>) {
+        file(context).writeText(
+            rows.joinToString("\n") { "${System.currentTimeMillis() / 1000}\t${it.zone}\t${it.settleSec}" }
+        )
     }
 
     private fun load(context: Context): List<Obs> {
